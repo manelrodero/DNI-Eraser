@@ -1,19 +1,19 @@
 ﻿<# 
  .SYNOPSIS
   Photo Eraser & Watermark Tool - Privacy Edition 2026
- .DESCRIPTION
-  Herramienta local avanzada para la ofuscación de documentos de identidad.
 #>
 
-# Forzar codificación UTF-8 en la consola para la correcta lectura de acentos
+# Forzar codificación UTF-8 en la consola para evitar fallos de acentos
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
 
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
-# ── Archivo de Configuración Persistente ──────────────────────────────────
-$script:configFile = Join-Path $PSScriptRoot "session_config.ini"
+# ── Localización Infalible del Archivo de Configuración ───────────────────
+$script:scriptPath = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path $MyInvocation.MyCommand.Path -Parent }
+if (-not $script:scriptPath) { $script:scriptPath = [System.IO.Directory]::GetCurrentDirectory() }
+$script:configFile = Join-Path $script:scriptPath "session_config.ini"
 
 # ── Estado Global Extendido ────────────────────────────────────────────────
 $script:docs = @{
@@ -25,20 +25,18 @@ $script:isDragging   = $false
 $script:dragStart    = $null
 $script:dragEnd      = $null
 
-# Parámetros de renderizado dinámico por documento
 $script:viewParams = @{
     "Frontal" = @{ scale = 1.0; xOffset = 0; yOffset = 0 }
     "Trasera" = @{ scale = 1.0; xOffset = 0; yOffset = 0 }
 }
 
-# ── Funciones de Conversión de Coordenadas Sin Desplazamientos ──────────────
+# ── Funciones de Conversión de Coordenadas ─────────────────────────────────
 
 function Get-CurrentDoc { return $script:docs[$script:currentTab] }
 
 function Convert-RectToOriginal([System.Drawing.Rectangle]$r, $tabName) {
     $doc = $script:docs[$tabName]
     $vp  = $script:viewParams[$tabName]
-    
     if ($vp.scale -le 0 -or -not $doc.hasImage) { return $r }
     
     $x = [int](($r.X - $vp.xOffset) / $vp.scale)
@@ -56,26 +54,12 @@ function Convert-RectToOriginal([System.Drawing.Rectangle]$r, $tabName) {
     return [System.Drawing.Rectangle]::new($x, $y, $w, $h)
 }
 
-function Convert-RectToVisual([System.Drawing.Rectangle]$origRect, $tabName) {
-    $doc = $script:docs[$tabName]
-    $vp  = $script:viewParams[$tabName]
-    
-    if (-not $doc.hasImage) { return $origRect }
-    
-    $x = [int]($origRect.X * $vp.scale + $vp.xOffset)
-    $y = [int]($origRect.Y * $vp.scale + $vp.yOffset)
-    $w = [int]($origRect.Width * $vp.scale)
-    $h = [int]($origRect.Height * $vp.scale)
-    return [System.Drawing.Rectangle]::new($x, $y, $w, $h)
-}
-
 # ── Procesamiento de Filtros Gráficos (Escala de Grises) ───────────────────
 
 function Convert-ToGrayscale([System.Drawing.Bitmap]$originalBmp) {
     $grayBmp = New-Object System.Drawing.Bitmap $originalBmp.Width, $originalBmp.Height
     $rect = New-Object System.Drawing.Rectangle 0, 0, $originalBmp.Width, $originalBmp.Height
     
-    # Bloqueo de memoria para procesado ultra veloz de píxeles
     $bmpDataOrig = $originalBmp.LockBits($rect, [System.Drawing.Imaging.ImageLockMode]::ReadOnly, [System.Drawing.Imaging.PixelFormat]::Format32bppRgb)
     $bmpDataGray = $grayBmp.LockBits($rect, [System.Drawing.Imaging.ImageLockMode]::WriteOnly, [System.Drawing.Imaging.PixelFormat]::Format32bppRgb)
     
@@ -83,15 +67,12 @@ function Convert-ToGrayscale([System.Drawing.Bitmap]$originalBmp) {
     $buffer = New-Object byte[] $size
     
     [System.Runtime.InteropServices.Marshal]::Copy($bmpDataOrig.Scan0, $buffer, 0, $size)
-    
     for ($i = 0; $i -lt $size; $i += 4) {
-        # Matriz de luminancia estándar BT.601 (B, G, R, A)
         $gray = [byte](0.114 * $buffer[$i] + 0.587 * $buffer[$i+1] + 0.299 * $buffer[$i+2])
         $buffer[$i]   = $gray
         $buffer[$i+1] = $gray
         $buffer[$i+2] = $gray
     }
-    
     [System.Runtime.InteropServices.Marshal]::Copy($buffer, 0, $bmpDataGray.Scan0, $size)
     
     $originalBmp.UnlockBits($bmpDataOrig)
@@ -181,7 +162,6 @@ function Update-Canvas {
     $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
     $g.DrawImage($doc.work, $vp.xOffset, $vp.yOffset, $nw, $nh)
 
-    # Dibujado de rectángulos con índice numérico superpuesto
     $pen = New-Object System.Drawing.Pen ([System.Drawing.Color]::FromArgb(255, 68, 68), 2.0)
     $pen.DashStyle = [System.Drawing.Drawing2D.DashStyle]::Dash
     $fontIndex = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
@@ -192,7 +172,6 @@ function Update-Canvas {
         $r = $doc.rects[$i]
         $g.DrawRectangle($pen, $r.X, $r.Y, $r.Width, $r.Height)
         
-        # Dibujar etiqueta de índice
         $lblStr = "#$i"
         $g.FillRectangle($brushBg, $r.X, $r.Y - 16, 24, 16)
         $g.DrawString($lblStr, $fontIndex, $brushText, $r.X + 2, $r.Y - 15)
@@ -213,15 +192,13 @@ function Update-Canvas {
     $pb.Image = $bmp
 }
 
-# ── Renderizado Avanzado de Mosaicos Intercalados ─────────────────────────
+# ── Renderizado de Mosaicos Proporcionales Adaptativos ────────────────────
 
-function Process-SingleBitmap($tabName, $txt, $fontSize, $opacity, $wmColor, $posVal, $fillColor, $toGray) {
+function Process-SingleBitmap($tabName, $txt, $fontSizeUser, $opacity, $wmColor, $posVal, $fillColor, $toGray) {
     $doc = $script:docs[$tabName]
     if (-not $doc.hasImage) { return $null }
     
-    # Base inicial nativa
     $baseBmp = if ($toGray) { Convert-ToGrayscale $doc.original } else { New-Object System.Drawing.Bitmap $doc.original }
-    
     $g = [System.Drawing.Graphics]::FromImage($baseBmp)
     $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
 
@@ -233,8 +210,11 @@ function Process-SingleBitmap($tabName, $txt, $fontSize, $opacity, $wmColor, $po
     }
     $brush.Dispose()
 
-    # 2. Configuración de Marca de Agua
-    $fontObj = New-Object System.Drawing.Font ("Arial", $fontSize, [System.Drawing.FontStyle]::Bold)
+    # MEJORA: Tamaño de fuente calculado como porcentaje real del ancho de la imagen nativa
+    $calculatedSize = [int]($baseBmp.Width * ($fontSizeUser / 1000.0))
+    if ($calculatedSize -lt 8) { $calculatedSize = 8 }
+
+    $fontObj = New-Object System.Drawing.Font ("Arial", $calculatedSize, [System.Drawing.FontStyle]::Bold)
     $alpha   = [int]($opacity * 2.55)
     $wmColorA = [System.Drawing.Color]::FromArgb($alpha, $wmColor.R, $wmColor.G, $wmColor.B)
     $wmBrush  = New-Object System.Drawing.SolidBrush $wmColorA
@@ -244,23 +224,19 @@ function Process-SingleBitmap($tabName, $txt, $fontSize, $opacity, $wmColor, $po
     $th = $sf.Height
     $iw = $baseBmp.Width
     $ih = $baseBmp.Height
-    $margin = [int]($fontSize * 0.5)
+    $margin = [int]($calculatedSize * 0.5)
 
     if ($posVal -eq "diagonal-tiled") {
-        # Creación de celda limpia con padding proporcional
-        $hSpacing = [int]($tw * 1.6)
-        $vSpacing = [int]($th * 3.5)
-        
+        $hSpacing = [int]($tw * 1.5)
+        $vSpacing = [int]($th * 3.2)
         $g.TextRenderingHint = [System.Drawing.Text.TextRenderingHint]::AntiAlias
         
-        # Guardar estado de transformación original de la imagen entera
         $oldTransform = $g.Transform
-        $g.RotateTransform(-25) # Inclinación elegante simulando la muestra de referencia
+        $g.RotateTransform(-25) 
         
-        # Mapeo extendido para evitar dejar esquinas vacías debido a la rotación
         $rowCounter = 0
+        # Forzar un área de dibujado expandida para cubrir rotaciones sin dejar huecos
         for ($y = -$ih; $y -lt $ih * 2; $y += $vSpacing) {
-            # Desplazamiento intercalado continuo (Staggered row grid)
             $xOffsetRow = if ($rowCounter % 2 -eq 1) { [int]($hSpacing / 2) } else { 0 }
             for ($x = -$iw; $x -lt $iw * 2; $x += $hSpacing) {
                 $g.DrawString($txt, $fontObj, $wmBrush, ($x + $xOffsetRow), $y)
@@ -269,8 +245,8 @@ function Process-SingleBitmap($tabName, $txt, $fontSize, $opacity, $wmColor, $po
         }
         $g.Transform = $oldTransform
     } elseif ($posVal -eq "tiled") {
-        $stepY = [int]($th + $fontSize * 2)
-        $stepX = [int]($tw + $fontSize * 2.5)
+        $stepY = [int]($th + $calculatedSize * 2)
+        $stepX = [int]($tw + $calculatedSize * 2.5)
         for ($y = $margin; $y -lt $ih; $y += $stepY) {
             for ($x = $margin; $x -lt $iw; $x += $stepX) {
                 $g.DrawString($txt, $fontObj, $wmBrush, $x, $y)
@@ -406,7 +382,7 @@ function Remove-Selected {
     Save-IniConfig
 }
 
-# ── Serialización de Archivos de Configuración INI ─────────────────────────
+# ── Serialización de Archivos de Configuración INI Corregida ────────────────
 
 function Save-IniConfig {
     try {
@@ -425,7 +401,6 @@ function Save-IniConfig {
             [void]$sb.AppendLine("Path=$($script:docs[$tab].path)")
             $rStrings = @()
             foreach ($r in $script:docs[$tab].rects) {
-                # Se guardan las coordenadas relativas visuales mapeadas directamente al INI
                 $rStrings += "$($r.X),$($r.Y),$($r.Width),$($r.Height)"
             }
             [void]$sb.AppendLine("Rects=$($rStrings -join ';')")
@@ -483,9 +458,7 @@ function Load-IniConfig {
     } catch {}
 }
 
-# ═══════════════════════════════════════════════════════════════════════════
-# UI CONSTRUCCIÓN
-# ═══════════════════════════════════════════════════════════════════════════
+# ── UI CONSTRUCCIÓN ────────────────────────────────────────────────────────
 
 $form = New-Object System.Windows.Forms.Form
 $form.Text          = "Photo Eraser & Watermark Pro"
@@ -527,7 +500,6 @@ $canvasPictureBox.Cursor = "Cross"
 $leftContainer.Controls.Add($canvasPictureBox)
 $canvasPictureBox.BringToFront()
 
-# Interceptores de Raton
 $canvasPictureBox.Add_MouseDown({
     if (-not (Get-CurrentDoc).hasImage) { return }
     $script:dragStart  = New-Object System.Drawing.Point $_.X, $_.Y
@@ -563,7 +535,6 @@ $canvasPictureBox.Add_MouseUp({
 })
 $canvasPictureBox.Add_Resize({ Update-Canvas })
 
-# Panel Derecho lateral
 $panel = New-Object System.Windows.Forms.Panel
 $panel.Dock = "Fill"
 $panel.AutoScroll = $true
@@ -586,7 +557,7 @@ function Add-GuiLabel($text, $bold=$false) {
     Add-GuiElement $lbl 2
 }
 
-# --- Construcción Dinámica de Elementos ---
+# --- Construcción de Controles Derechos ---
 Add-GuiLabel "Control de Archivos" $true
 $openBtn = New-Object System.Windows.Forms.Button -Property @{Text="Abrir Imagen"; Height=28}
 $openBtn.Add_Click({ Open-Image })
@@ -609,7 +580,6 @@ $clearBtn.Add_Click({ Clear-Selections })
 Add-GuiElement $clearBtn 15
 
 Add-GuiLabel "Color de Ocultación / Tapado" $true
-# Cambiado por defecto a Gris Oscuro (DarkGray)
 $fillColorBtn = New-Object System.Windows.Forms.Button -Property @{Text="Elegir Color de Relleno"; Height=25; BackColor=[System.Drawing.Color]::DarkGray}
 $fillColorBtn.Add_Click({
     $cd = New-Object System.Windows.Forms.ColorDialog
@@ -617,7 +587,6 @@ $fillColorBtn.Add_Click({
 })
 Add-GuiElement $fillColorBtn 12
 
-# Filtro Escala de Grises
 $grayCheck = New-Object System.Windows.Forms.CheckBox -Property @{Text="Convertir imagen a Escala de Grises"; AutoSize=$true; Checked=$false}
 $grayCheck.Add_CheckedChanged({ Save-IniConfig })
 Add-GuiElement $grayCheck 15
@@ -629,14 +598,12 @@ $watermarkText = New-Object System.Windows.Forms.TextBox -Property @{Text="COPIA
 $watermarkText.Add_TextChanged({ Save-IniConfig })
 Add-GuiElement $watermarkText
 
-# Cambiado valor por defecto a 35 según solicitud
 $fsLbl = New-Object System.Windows.Forms.Label -Property @{Text="Tamaño Letra: 35"; AutoSize=$true}
 Add-GuiElement $fsLbl 0
 $fontSizeTrack = New-Object System.Windows.Forms.TrackBar -Property @{Minimum=10; Maximum=150; Value=35; Height=30; TickFrequency=10}
 $fontSizeTrack.Add_Scroll({ $fsLbl.Text = "Tamaño Letra: $($fontSizeTrack.Value)"; Save-IniConfig })
 Add-GuiElement $fontSizeTrack
 
-# Cambiado valor por defecto a 35% según solicitud
 $opLbl = New-Object System.Windows.Forms.Label -Property @{Text="Opacidad: 35%"; AutoSize=$true}
 Add-GuiElement $opLbl 0
 $opacityTrack = New-Object System.Windows.Forms.TrackBar -Property @{Minimum=5; Maximum=100; Value=35; Height=30; TickFrequency=10}
@@ -651,7 +618,6 @@ $posCombo.Add_SelectedIndexChanged({ Save-IniConfig })
 Add-GuiElement $posCombo
 
 Add-GuiLabel "Color Texto:"
-# Cambiado por defecto a Rojo puro (Red)
 $watermarkColorBtn = New-Object System.Windows.Forms.Button -Property @{Text="Elegir Color"; Height=25; BackColor=[System.Drawing.Color]::Red}
 $watermarkColorBtn.Add_Click({
     $cd = New-Object System.Windows.Forms.ColorDialog
@@ -663,7 +629,7 @@ $applyBtn = New-Object System.Windows.Forms.Button -Property @{Text="APLICAR EFE
 $applyBtn.Add_Click({ Apply-Effects })
 Add-GuiElement $applyBtn
 
-# Eventos de Formulario finales
+# Eventos de Ciclo de Vida
 $form.Add_FormClosing({ Save-IniConfig })
 $form.Add_Load({ Load-IniConfig })
 
