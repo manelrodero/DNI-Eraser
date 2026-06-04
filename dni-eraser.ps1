@@ -1,6 +1,6 @@
 ﻿<# 
  .SYNOPSIS
-  Photo Eraser & Watermark Tool - Privacy Edition 2026 (v11)
+  DNI Eraser & Watermark Pro - Privacy Edition 2026 (v12 Corregida)
 #>
 
 # Forzar codificación UTF-8 en la consola para evitar fallos de acentos
@@ -45,7 +45,131 @@ $script:viewParams = @{
     "Trasera" = @{ scale = 1.0; xOffset = 0; yOffset = 0 }
 }
 
-# ── Funciones de Conversión de Coordenadas ─────────────────────────────────
+# ── UI CONSTRUCCIÓN (Primero creamos los objetos) ──────────────────────────
+
+$form = New-Object System.Windows.Forms.Form
+$form.Text          = "DNI Eraser & Watermark Pro (v12)"
+$form.Size          = New-Object System.Drawing.Size(1250, 920)
+$form.MinimumSize   = New-Object System.Drawing.Size(950, 750)
+$form.StartPosition = "CenterScreen"
+
+$mainLayout = New-Object System.Windows.Forms.TableLayoutPanel
+$mainLayout.Dock = "Fill"
+$mainLayout.ColumnCount = 2
+$mainLayout.RowCount = 1
+
+$styleCanvas = New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 100)
+$stylePanel  = New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Absolute, 290)
+[void]$mainLayout.ColumnStyles.Add($styleCanvas)
+[void]$mainLayout.ColumnStyles.Add($stylePanel)
+$form.Controls.Add($mainLayout)
+
+$leftContainer = New-Object System.Windows.Forms.Panel
+$leftContainer.Dock = "Fill"
+$mainLayout.Controls.Add($leftContainer, 0, 0)
+
+$tabStrip = New-Object System.Windows.Forms.TabControl
+$tabStrip.Dock = "Top"
+$tabStrip.Height = 28
+[void]$tabStrip.TabPages.Add("Frontal", "Cara frontal / delantera")
+[void]$tabStrip.TabPages.Add("Trasera", "Cara trasera / posterior")
+$leftContainer.Controls.Add($tabStrip)
+
+$canvasPictureBox = New-Object System.Windows.Forms.PictureBox
+$canvasPictureBox.Dock = "Fill"
+$canvasPictureBox.BackColor = [System.Drawing.Color]::FromArgb(45, 45, 45)
+$canvasPictureBox.Cursor = "Cross"
+$leftContainer.Controls.Add($canvasPictureBox)
+$canvasPictureBox.BringToFront()
+
+$panel = New-Object System.Windows.Forms.Panel
+$panel.Dock = "Fill"
+$panel.AutoScroll = $false
+$panel.Padding = New-Object System.Windows.Forms.Padding(12)
+$mainLayout.Controls.Add($panel, 1, 0)
+
+$yPos = 12
+function Add-GuiElement($obj, $hGap=6) {
+    $obj.Location = New-Object System.Drawing.Point(12, $script:yPos)
+    $obj.Width = $panel.ClientSize.Width - 24
+    [void]$panel.Controls.Add($obj)
+    $script:yPos += $obj.Height + $hGap
+}
+
+function Add-GuiLabel($text, $bold=$false) {
+    $lbl = New-Object System.Windows.Forms.Label
+    $lbl.Text = $text
+    $lbl.AutoSize = $true
+    if ($bold) { $lbl.Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold) }
+    Add-GuiElement $lbl 2
+}
+
+# --- Inicialización de los elementos del panel lateral ---
+Add-GuiLabel "Control de archivos" $true
+$openBtn = New-Object System.Windows.Forms.Button -Property @{Text="Cargar imagen"; Height=28}
+Add-GuiElement $openBtn
+
+$saveBtn = New-Object System.Windows.Forms.Button -Property @{Text="Guardar resultado final"; Height=36; BackColor=[System.Drawing.Color]::LightGreen; Font=New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)}
+Add-GuiElement $saveBtn 12
+
+Add-GuiLabel "Zonas de censura" $true
+$listBox = New-Object System.Windows.Forms.ListBox -Property @{Height=80}
+Add-GuiElement $listBox
+
+$removeBtn = New-Object System.Windows.Forms.Button -Property @{Text="Eliminar zonas seleccionadas"; Height=24}
+Add-GuiElement $removeBtn
+
+$clearBtn = New-Object System.Windows.Forms.Button -Property @{Text="Limpiar todas las zonas"; Height=24}
+Add-GuiElement $clearBtn 12
+
+$fillColorBtn = New-Object System.Windows.Forms.Button -Property @{Text="Elegir color de relleno"; Height=24; BackColor=[System.Drawing.Color]::DarkGray}
+Add-GuiElement $fillColorBtn 15
+
+Add-GuiLabel "Configuración de la marca de agua" $true
+
+Add-GuiLabel "Línea 1: entidad / destinatario"
+$txtLine1 = New-Object System.Windows.Forms.TextBox -Property @{Text="CHUMBA"}
+Add-GuiElement $txtLine1 4
+
+Add-GuiLabel "Línea 2: motivo / uso exclusivo"
+$txtLine2 = New-Object System.Windows.Forms.TextBox -Property @{Text="CAMBIO A E-SIM"}
+Add-GuiElement $txtLine2
+
+$fsLbl = New-Object System.Windows.Forms.Label -Property @{Text="Tamaño letra: 35"; AutoSize=$true}
+Add-GuiElement $fsLbl 0
+$fontSizeTrack = New-Object System.Windows.Forms.TrackBar -Property @{Minimum=10; Maximum=150; Value=35; Height=30; TickFrequency=10}
+Add-GuiElement $fontSizeTrack
+
+$opLbl = New-Object System.Windows.Forms.Label -Property @{Text="Opacidad: 35%"; AutoSize=$true}
+Add-GuiElement $opLbl 0
+$opacityTrack = New-Object System.Windows.Forms.TrackBar -Property @{Minimum=5; Maximum=100; Value=35; Height=30; TickFrequency=10}
+Add-GuiElement $opacityTrack
+
+Add-GuiLabel "Posición y estilo:"
+$posCombo = New-Object System.Windows.Forms.ComboBox -Property @{DropDownStyle="DropDownList"}
+[void]$posCombo.Items.AddRange(@("top-left", "top-right", "bottom-left", "bottom-right", "center", "tiled", "diagonal-tiled"))
+$posCombo.SelectedIndex = 6
+Add-GuiElement $posCombo 10
+
+$watermarkColorBtn = New-Object System.Windows.Forms.Button -Property @{Text="Elegir color de la marca de agua"; Height=24; BackColor=[System.Drawing.Color]::Red}
+Add-GuiElement $watermarkColorBtn 15
+
+Add-GuiLabel "Otras opciones" $true
+$grayCheck = New-Object System.Windows.Forms.CheckBox -Property @{Text="Convertir imagen a escala de grises"; AutoSize=$true; Checked=$false}
+Add-GuiElement $grayCheck 15
+
+$applyBtn = New-Object System.Windows.Forms.Button -Property @{Text="APLICAR EFECTOS"; Height=42; Font=New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold); BackColor=[System.Drawing.Color]::LightSkyBlue}
+Add-GuiElement $applyBtn 15
+
+Add-GuiLabel "Persistencia de datos" $true
+$btnSaveSession = New-Object System.Windows.Forms.Button -Property @{Text="Guardar configuración"; Height=28; BackColor=[System.Drawing.Color]::WhiteSmoke}
+Add-GuiElement $btnSaveSession 4
+
+$btnLoadSession = New-Object System.Windows.Forms.Button -Property @{Text="Cargar configuración"; Height=28; BackColor=[System.Drawing.Color]::WhiteSmoke}
+Add-GuiElement $btnLoadSession
+
+
+# ── LOGICA Y FUNCIONES (Ahora que los objetos existen, podemos referenciarlos) ──
 
 function Get-CurrentDoc { return $script:docs[$script:currentTab] }
 
@@ -68,8 +192,6 @@ function Convert-RectToOriginal([System.Drawing.Rectangle]$r, $tabName) {
     $h = [Math]::Max(1, [Math]::Min($h, $oh - $y))
     return [System.Drawing.Rectangle]::new($x, $y, $w, $h)
 }
-
-# ── Procesamiento de Filtros Gráficos (Escala de Grises) ───────────────────
 
 function Convert-ToGrayscale([System.Drawing.Bitmap]$originalBmp) {
     $grayBmp = New-Object System.Drawing.Bitmap $originalBmp.Width, $originalBmp.Height
@@ -94,8 +216,6 @@ function Convert-ToGrayscale([System.Drawing.Bitmap]$originalBmp) {
     $grayBmp.UnlockBits($bmpDataGray)
     return $grayBmp
 }
-
-# ── Motores de Interfaz y Carga de Archivos ────────────────────────────────
 
 function Open-Image-Path($path, $tabName) {
     if (-not (Test-Path $path)) { return $false }
@@ -122,8 +242,8 @@ function Open-Image-Path($path, $tabName) {
 
 function Open-Image {
     $dlg = New-Object System.Windows.Forms.OpenFileDialog
-    $dlg.Title  = "Seleccionar Imagen ($script:currentTab)"
-    $dlg.Filter = "Archivos de Imagen|*.png;*.jpg;*.jpeg;*.bmp;*.webp;*.tiff"
+    $dlg.Title  = "Seleccionar imagen ($script:currentTab)"
+    $dlg.Filter = "Archivos de imagen|*.png;*.jpg;*.jpeg;*.bmp;*.webp;*.tiff"
     if ($dlg.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK) { return }
 
     if (Open-Image-Path $dlg.FileName $script:currentTab) {
@@ -147,7 +267,7 @@ function Update-Canvas {
         $g = [System.Drawing.Graphics]::FromImage($bmp)
         $g.Clear([System.Drawing.Color]::FromArgb(45,45,45))
         $font = New-Object System.Drawing.Font("Segoe UI", 12)
-        $g.DrawString("Sin imagen cargada en: $script:currentTab`n`nHaga clic en 'Abrir Imagen' para comenzar.", $font, [System.Drawing.Brushes]::Gray, 20, 20)
+        $g.DrawString("Sin imagen cargada en: $script:currentTab`n`nHaga clic en 'Cargar imagen' para comenzar.", $font, [System.Drawing.Brushes]::Gray, 20, 20)
         $font.Dispose(); $g.Dispose()
         if ($pb.Image) { $pb.Image.Dispose() }
         $pb.Image = $bmp
@@ -207,8 +327,6 @@ function Update-Canvas {
     $pb.Image = $bmp
 }
 
-# ── Renderizado de Mosaicos Proporcionales Adaptativos Multilínea ──────────
-
 function Process-SingleBitmap($tabName, $line1, $line2, $fontSizeUser, $opacity, $wmColor, $posVal, $fillColor, $toGray) {
     $doc = $script:docs[$tabName]
     if (-not $doc.hasImage) { return $null }
@@ -217,7 +335,6 @@ function Process-SingleBitmap($tabName, $line1, $line2, $fontSizeUser, $opacity,
     $g = [System.Drawing.Graphics]::FromImage($baseBmp)
     $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
 
-    # Aplicar rectángulos de borrado
     $brush = New-Object System.Drawing.SolidBrush $fillColor
     foreach ($r in $doc.rects) {
         $origRect = Convert-RectToOriginal $r $tabName
@@ -225,7 +342,6 @@ function Process-SingleBitmap($tabName, $line1, $line2, $fontSizeUser, $opacity,
     }
     $brush.Dispose()
 
-    # Cálculo dinámico de fuentes (Línea 2 un 35% más pequeña)
     $sizeL1 = [int]($baseBmp.Width * ($fontSizeUser / 1000.0))
     if ($sizeL1 -lt 8) { $sizeL1 = 8 }
     $sizeL2 = [int]($sizeL1 * 0.65)
@@ -238,7 +354,6 @@ function Process-SingleBitmap($tabName, $line1, $line2, $fontSizeUser, $opacity,
     $wmColorA = [System.Drawing.Color]::FromArgb($alpha, $wmColor.R, $wmColor.G, $wmColor.B)
     $wmBrush  = New-Object System.Drawing.SolidBrush $wmColorA
 
-    # Mediciones de texto
     $sf1 = $g.MeasureString($line1, $fontL1)
     $sf2 = if ($line2) { $g.MeasureString($line2, $fontL2) } else { [System.Drawing.SizeF]::new(0,0) }
     
@@ -250,13 +365,10 @@ function Process-SingleBitmap($tabName, $line1, $line2, $fontSizeUser, $opacity,
     $ih = $baseBmp.Height
     $margin = [int]($sizeL1 * 0.5)
 
-    # Función interna para dibujar el bloque centrado en coordenadas X, Y
     $DrawWatermarkBlock = {
         param($gCtx, $bx, $by)
-        # Línea 1 centrada respecto al bloque
         $x1 = $bx + (($totalW - $sf1.Width) / 2)
         $gCtx.DrawString($line1, $fontL1, $wmBrush, $x1, $by)
-        # Línea 2 centrada respecto al bloque por debajo
         if ($line2) {
             $x2 = $bx + (($totalW - $sf2.Width) / 2)
             $y2 = $by + $sf1.Height + $lineGap
@@ -326,8 +438,6 @@ function Apply-Effects {
     }
 }
 
-# ── Sistema de Exportación Unificado ───────────────────────────────────────
-
 function Save-Image {
     $docFront = $script:docs["Frontal"]
     $docBack  = $script:docs["Trasera"]
@@ -373,7 +483,7 @@ function Save-Image {
     }
 
     $dlg = New-Object System.Windows.Forms.SaveFileDialog
-    $dlg.Title  = "Guardar Imagen Resultante"
+    $dlg.Title  = "Guardar imagen resultante"
     $dlg.Filter = "PNG Imagen|*.png|JPEG Imagen|*.jpg"
     $dlg.DefaultExt = "png"
     if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
@@ -389,14 +499,12 @@ function Save-Image {
     if ($outputBmp) { $outputBmp.Dispose() }
 }
 
-# ── Gestión de Listas de Rectángulos de Limpieza ──────────────────────────
-
 function Sync-Listbox {
     $listBox.Items.Clear()
     $doc = Get-CurrentDoc
     if ($doc.hasImage) {
         for ($i = 0; $i -lt $doc.rects.Count; $i++) {
-            [void]$listBox.Items.Add("Zona borrado #$i")
+            [void]$listBox.Items.Add("Zona censurada #$i")
         }
     }
 }
@@ -419,8 +527,6 @@ function Remove-Selected {
     Update-Canvas
     Save-IniConfig $false
 }
-
-# ── Serialización de Archivos de Configuración INI ─────────────────────────
 
 function Save-IniConfig($verbose) {
     if ($script:loading -and -not $verbose) { return }
@@ -485,7 +591,7 @@ function Load-IniConfig($verbose) {
                 switch ($key) {
                     "Line1"          { $txtLine1.Text = $val }
                     "Line2"          { $txtLine2.Text = $val }
-                    "FontSize"       { $fontSizeTrack.Value = [int]$val; $fsLbl.Text = "Tamaño Letra: $val" }
+                    "FontSize"       { $fontSizeTrack.Value = [int]$val; $fsLbl.Text = "Tamaño letra: $val" }
                     "Opacity"        { $opacityTrack.Value = [int]$val; $opLbl.Text = "Opacidad: $val%" }
                     "Position"       { $posCombo.SelectedItem = $val }
                     "Grayscale"      { $grayCheck.Checked = [System.Convert]::ToBoolean($val) }
@@ -520,48 +626,13 @@ function Load-IniConfig($verbose) {
     }
 }
 
-# ── UI CONSTRUCCIÓN ────────────────────────────────────────────────────────
+# ── ASIGNACIÓN DE ENLACES Y EVENTOS DE INTERFAZ ────────────────────────────
 
-$form = New-Object System.Windows.Forms.Form
-$form.Text          = "Photo Eraser & Watermark Pro (v11)"
-# ARREGLADO: Incrementamos la altura inicial de 890 a 920 para que entre el último botón con holgura
-$form.Size          = New-Object System.Drawing.Size(1250, 920)
-$form.MinimumSize   = New-Object System.Drawing.Size(950, 750)
-$form.StartPosition = "CenterScreen"
-
-$mainLayout = New-Object System.Windows.Forms.TableLayoutPanel
-$mainLayout.Dock = "Fill"
-$mainLayout.ColumnCount = 2
-$mainLayout.RowCount = 1
-
-$styleCanvas = New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 100)
-$stylePanel  = New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Absolute, 290)
-[void]$mainLayout.ColumnStyles.Add($styleCanvas)
-[void]$mainLayout.ColumnStyles.Add($stylePanel)
-$form.Controls.Add($mainLayout)
-
-$leftContainer = New-Object System.Windows.Forms.Panel
-$leftContainer.Dock = "Fill"
-$mainLayout.Controls.Add($leftContainer, 0, 0)
-
-$tabStrip = New-Object System.Windows.Forms.TabControl
-$tabStrip.Dock = "Top"
-$tabStrip.Height = 28
-[void]$tabStrip.TabPages.Add("Frontal", "Cara Frontal / Delantera")
-[void]$tabStrip.TabPages.Add("Trasera", "Cara Trasera / Posterior")
 $tabStrip.Add_SelectedIndexChanged({
     $script:currentTab = if ($tabStrip.SelectedIndex -eq 1) { "Trasera" } else { "Frontal" }
     Sync-Listbox
     Update-Canvas
 })
-$leftContainer.Controls.Add($tabStrip)
-
-$canvasPictureBox = New-Object System.Windows.Forms.PictureBox
-$canvasPictureBox.Dock = "Fill"
-$canvasPictureBox.BackColor = [System.Drawing.Color]::FromArgb(45, 45, 45)
-$canvasPictureBox.Cursor = "Cross"
-$leftContainer.Controls.Add($canvasPictureBox)
-$canvasPictureBox.BringToFront()
 
 $canvasPictureBox.Add_MouseDown({
     if (-not (Get-CurrentDoc).hasImage) { return }
@@ -598,116 +669,35 @@ $canvasPictureBox.Add_MouseUp({
 })
 $canvasPictureBox.Add_Resize({ Update-Canvas })
 
-$panel = New-Object System.Windows.Forms.Panel
-$panel.Dock = "Fill"
-$panel.AutoScroll = $false
-$panel.Padding = New-Object System.Windows.Forms.Padding(12)
-$mainLayout.Controls.Add($panel, 1, 0)
-
-$yPos = 12
-function Add-GuiElement($obj, $hGap=6) {
-    $obj.Location = New-Object System.Drawing.Point(12, $script:yPos)
-    $obj.Width = $panel.ClientSize.Width - 24
-    [void]$panel.Controls.Add($obj)
-    $script:yPos += $obj.Height + $hGap
-}
-
-function Add-GuiLabel($text, $bold=$false) {
-    $lbl = New-Object System.Windows.Forms.Label
-    $lbl.Text = $text
-    $lbl.AutoSize = $true
-    if ($bold) { $lbl.Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold) }
-    Add-GuiElement $lbl 2
-}
-
-# --- Construcción de Controles Derechos ---
-Add-GuiLabel "Control de Archivos" $true
-$openBtn = New-Object System.Windows.Forms.Button -Property @{Text="Abrir Imagen"; Height=28}
+# Enlaces de botones
 $openBtn.Add_Click({ Open-Image })
-Add-GuiElement $openBtn
-
-$saveBtn = New-Object System.Windows.Forms.Button -Property @{Text="GUARDAR RESULTADO FINAL"; Height=36; BackColor=[System.Drawing.Color]::LightGreen; Font=New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)}
 $saveBtn.Add_Click({ Save-Image })
-Add-GuiElement $saveBtn 12
-
-Add-GuiLabel "Regiones de Censura" $true
-$listBox = New-Object System.Windows.Forms.ListBox -Property @{Height=80}
-Add-GuiElement $listBox
-
-$removeBtn = New-Object System.Windows.Forms.Button -Property @{Text="Eliminar Seleccionada"; Height=24}
 $removeBtn.Add_Click({ Remove-Selected })
-Add-GuiElement $removeBtn
-
-$clearBtn = New-Object System.Windows.Forms.Button -Property @{Text="Limpiar Todas las Zonas"; Height=24}
 $clearBtn.Add_Click({ Clear-Selections })
-Add-GuiElement $clearBtn 12
+$applyBtn.Add_Click({ Apply-Effects })
 
-Add-GuiLabel "Color de Ocultación / Tapado" $true
-$fillColorBtn = New-Object System.Windows.Forms.Button -Property @{Text="Elegir Color de Relleno"; Height=24; BackColor=[System.Drawing.Color]::DarkGray}
 $fillColorBtn.Add_Click({
     $cd = New-Object System.Windows.Forms.ColorDialog
     if ($cd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $fillColorBtn.BackColor = $cd.Color; Save-IniConfig $false }
 })
-Add-GuiElement $fillColorBtn 10
 
-$grayCheck = New-Object System.Windows.Forms.CheckBox -Property @{Text="Convertir imagen a Escala de Grises"; AutoSize=$true; Checked=$false}
-$grayCheck.Add_CheckedChanged({ Save-IniConfig $false })
-Add-GuiElement $grayCheck 12
-
-Add-GuiLabel "Configuración Marca de Agua" $true
-
-# NUEVO: Doble campo de texto optimizado para Entidad y Motivo
-Add-GuiLabel "Línea 1: Entidad / Destinatario"
-$txtLine1 = New-Object System.Windows.Forms.TextBox -Property @{Text="CHUMBA"}
-$txtLine1.Add_TextChanged({ Save-IniConfig $false })
-Add-GuiElement $txtLine1 4
-
-Add-GuiLabel "Línea 2: Motivo / Uso exclusivo"
-$txtLine2 = New-Object System.Windows.Forms.TextBox -Property @{Text="CAMBIO A E-SIM"}
-$txtLine2.Add_TextChanged({ Save-IniConfig $false })
-Add-GuiElement $txtLine2
-
-$fsLbl = New-Object System.Windows.Forms.Label -Property @{Text="Tamaño Letra: 35"; AutoSize=$true}
-Add-GuiElement $fsLbl 0
-$fontSizeTrack = New-Object System.Windows.Forms.TrackBar -Property @{Minimum=10; Maximum=150; Value=35; Height=30; TickFrequency=10}
-$fontSizeTrack.Add_Scroll({ $fsLbl.Text = "Tamaño Letra: $($fontSizeTrack.Value)"; Save-IniConfig $false })
-Add-GuiElement $fontSizeTrack
-
-$opLbl = New-Object System.Windows.Forms.Label -Property @{Text="Opacidad: 35%"; AutoSize=$true}
-Add-GuiElement $opLbl 0
-$opacityTrack = New-Object System.Windows.Forms.TrackBar -Property @{Minimum=5; Maximum=100; Value=35; Height=30; TickFrequency=10}
-$opacityTrack.Add_Scroll({ $opLbl.Text = "Opacidad: $($opacityTrack.Value)%"; Save-IniConfig $false })
-Add-GuiElement $opacityTrack
-
-Add-GuiLabel "Posición y Estilo:"
-$posCombo = New-Object System.Windows.Forms.ComboBox -Property @{DropDownStyle="DropDownList"}
-[void]$posCombo.Items.AddRange(@("top-left", "top-right", "bottom-left", "bottom-right", "center", "tiled", "diagonal-tiled"))
-$posCombo.SelectedIndex = 6
-$posCombo.Add_SelectedIndexChanged({ Save-IniConfig $false })
-Add-GuiElement $posCombo
-
-Add-GuiLabel "Color Texto:"
-$watermarkColorBtn = New-Object System.Windows.Forms.Button -Property @{Text="Elegir Color"; Height=24; BackColor=[System.Drawing.Color]::Red}
 $watermarkColorBtn.Add_Click({
     $cd = New-Object System.Windows.Forms.ColorDialog
     if ($cd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $watermarkColorBtn.BackColor = $cd.Color; Save-IniConfig $false }
 })
-Add-GuiElement $watermarkColorBtn 10
 
-$applyBtn = New-Object System.Windows.Forms.Button -Property @{Text="APLICAR EFECTOS"; Height=42; Font=New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold); BackColor=[System.Drawing.Color]::LightSkyBlue}
-$applyBtn.Add_Click({ Apply-Effects })
-Add-GuiElement $applyBtn 15
+# Guardado reactivo en eventos de cambio
+$txtLine1.Add_TextChanged({ Save-IniConfig $false })
+$txtLine2.Add_TextChanged({ Save-IniConfig $false })
+$fontSizeTrack.Add_Scroll({ $fsLbl.Text = "Tamaño letra: $($fontSizeTrack.Value)"; Save-IniConfig $false })
+$opacityTrack.Add_Scroll({ $opLbl.Text = "Opacidad: $($opacityTrack.Value)%"; Save-IniConfig $false })
+$posCombo.Add_SelectedIndexChanged({ Save-IniConfig $false })
+$grayCheck.Add_CheckedChanged({ Save-IniConfig $false })
 
-Add-GuiLabel "Persistencia de Datos" $true
-$btnSaveSession = New-Object System.Windows.Forms.Button -Property @{Text="Guardar Configuración"; Height=28; BackColor=[System.Drawing.Color]::WhiteSmoke}
 $btnSaveSession.Add_Click({ Save-IniConfig $true })
-Add-GuiElement $btnSaveSession 4
-
-$btnLoadSession = New-Object System.Windows.Forms.Button -Property @{Text="Cargar Configuración"; Height=28; BackColor=[System.Drawing.Color]::WhiteSmoke}
 $btnLoadSession.Add_Click({ Load-IniConfig $true })
-Add-GuiElement $btnLoadSession
 
-# Eventos de Ciclo de Vida
+# Eventos globales de formulario
 $form.Add_FormClosing({ Save-IniConfig $false })
 $form.Add_Load({ Load-IniConfig $false })
 
@@ -717,4 +707,5 @@ $form.Add_KeyDown({
 })
 $form.KeyPreview = $true
 
+# Lanzamiento limpio de la App
 [void]$form.ShowDialog()
