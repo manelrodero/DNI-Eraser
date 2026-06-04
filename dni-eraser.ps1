@@ -1,6 +1,6 @@
 ﻿<# 
  .SYNOPSIS
-  Photo Eraser & Watermark Tool - Privacy Edition 2026 (v10 - Corregida)
+  Photo Eraser & Watermark Tool - Privacy Edition 2026 (v11)
 #>
 
 # Forzar codificación UTF-8 en la consola para evitar fallos de acentos
@@ -18,7 +18,6 @@ if (-not $script:scriptPath -or -not (Test-Path $script:scriptPath -PathType Con
 
 $script:configFile = Join-Path $script:scriptPath "session_config.ini"
 
-# Validar si tenemos permisos de escritura; si no, redirigir a Mis Documentos
 try {
     $testFile = Join-Path $script:scriptPath "perm_test.tmp"
     [System.IO.File]::WriteAllText($testFile, "test")
@@ -208,9 +207,9 @@ function Update-Canvas {
     $pb.Image = $bmp
 }
 
-# ── Renderizado de Mosaicos Proporcionales Adaptativos ────────────────────
+# ── Renderizado de Mosaicos Proporcionales Adaptativos Multilínea ──────────
 
-function Process-SingleBitmap($tabName, $txt, $fontSizeUser, $opacity, $wmColor, $posVal, $fillColor, $toGray) {
+function Process-SingleBitmap($tabName, $line1, $line2, $fontSizeUser, $opacity, $wmColor, $posVal, $fillColor, $toGray) {
     $doc = $script:docs[$tabName]
     if (-not $doc.hasImage) { return $null }
     
@@ -218,6 +217,7 @@ function Process-SingleBitmap($tabName, $txt, $fontSizeUser, $opacity, $wmColor,
     $g = [System.Drawing.Graphics]::FromImage($baseBmp)
     $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
 
+    # Aplicar rectángulos de borrado
     $brush = New-Object System.Drawing.SolidBrush $fillColor
     foreach ($r in $doc.rects) {
         $origRect = Convert-RectToOriginal $r $tabName
@@ -225,24 +225,48 @@ function Process-SingleBitmap($tabName, $txt, $fontSizeUser, $opacity, $wmColor,
     }
     $brush.Dispose()
 
-    $calculatedSize = [int]($baseBmp.Width * ($fontSizeUser / 1000.0))
-    if ($calculatedSize -lt 8) { $calculatedSize = 8 }
+    # Cálculo dinámico de fuentes (Línea 2 un 35% más pequeña)
+    $sizeL1 = [int]($baseBmp.Width * ($fontSizeUser / 1000.0))
+    if ($sizeL1 -lt 8) { $sizeL1 = 8 }
+    $sizeL2 = [int]($sizeL1 * 0.65)
+    if ($sizeL2 -lt 6) { $sizeL2 = 6 }
 
-    $fontObj = New-Object System.Drawing.Font ("Arial", $calculatedSize, [System.Drawing.FontStyle]::Bold)
+    $fontL1 = New-Object System.Drawing.Font ("Arial", $sizeL1, [System.Drawing.FontStyle]::Bold)
+    $fontL2 = New-Object System.Drawing.Font ("Arial", $sizeL2, [System.Drawing.FontStyle]::Bold)
+    
     $alpha   = [int]($opacity * 2.55)
     $wmColorA = [System.Drawing.Color]::FromArgb($alpha, $wmColor.R, $wmColor.G, $wmColor.B)
     $wmBrush  = New-Object System.Drawing.SolidBrush $wmColorA
 
-    $sf = $g.MeasureString($txt, $fontObj)
-    $tw = $sf.Width
-    $th = $sf.Height
+    # Mediciones de texto
+    $sf1 = $g.MeasureString($line1, $fontL1)
+    $sf2 = if ($line2) { $g.MeasureString($line2, $fontL2) } else { [System.Drawing.SizeF]::new(0,0) }
+    
+    $totalW = [Math]::Max($sf1.Width, $sf2.Width)
+    $lineGap = [int]($sizeL1 * 0.2)
+    $totalH = if ($line2) { $sf1.Height + $sf2.Height + $lineGap } else { $sf1.Height }
+
     $iw = $baseBmp.Width
     $ih = $baseBmp.Height
-    $margin = [int]($calculatedSize * 0.5)
+    $margin = [int]($sizeL1 * 0.5)
+
+    # Función interna para dibujar el bloque centrado en coordenadas X, Y
+    $DrawWatermarkBlock = {
+        param($gCtx, $bx, $by)
+        # Línea 1 centrada respecto al bloque
+        $x1 = $bx + (($totalW - $sf1.Width) / 2)
+        $gCtx.DrawString($line1, $fontL1, $wmBrush, $x1, $by)
+        # Línea 2 centrada respecto al bloque por debajo
+        if ($line2) {
+            $x2 = $bx + (($totalW - $sf2.Width) / 2)
+            $y2 = $by + $sf1.Height + $lineGap
+            $gCtx.DrawString($line2, $fontL2, $wmBrush, $x2, $y2)
+        }
+    }
 
     if ($posVal -eq "diagonal-tiled") {
-        $hSpacing = [int]($tw * 1.5)
-        $vSpacing = [int]($th * 3.2)
+        $hSpacing = [int]($totalW * 1.5)
+        $vSpacing = [int]($totalH * 2.5)
         $g.TextRenderingHint = [System.Drawing.Text.TextRenderingHint]::AntiAlias
         
         $oldTransform = $g.Transform
@@ -252,33 +276,33 @@ function Process-SingleBitmap($tabName, $txt, $fontSizeUser, $opacity, $wmColor,
         for ($y = -$ih; $y -lt $ih * 2; $y += $vSpacing) {
             $xOffsetRow = if ($rowCounter % 2 -eq 1) { [int]($hSpacing / 2) } else { 0 }
             for ($x = -$iw; $x -lt $iw * 2; $x += $hSpacing) {
-                $g.DrawString($txt, $fontObj, $wmBrush, ($x + $xOffsetRow), $y)
+                & $DrawWatermarkBlock $g ($x + $xOffsetRow) $y
             }
             $rowCounter++
         }
         $g.Transform = $oldTransform
     } elseif ($posVal -eq "tiled") {
-        $stepY = [int]($th + $calculatedSize * 2)
-        $stepX = [int]($tw + $calculatedSize * 2.5)
-        for ($y = $margin; $y -lt $ih; $y += $stepY) {
-            for ($x = $margin; $x -lt $iw; $x += $stepX) {
-                $g.DrawString($txt, $fontObj, $wmBrush, $x, $y)
+        $stepY = [int]($totalH + $sizeL1 * 2)
+        $stepX = [int]($totalW + $sizeL1 * 2.5)
+        for ($y = $margin; $y -lt ($ih - $totalH); $y += $stepY) {
+            for ($x = $margin; $x -lt ($iw - $totalW); $x += $stepX) {
+                & $DrawWatermarkBlock $g $x $y
             }
         }
     } else {
         $placements = @{
             "top-left"      = @($margin, $margin)
-            "top-right"     = @(($iw - $tw - $margin), $margin)
-            "bottom-left"   = @($margin, ($ih - $th - $margin))
-            "bottom-right"  = @(($iw - $tw - $margin), ($ih - $th - $margin))
-            "center"        = @((($iw - $tw)/2), (($ih - $th)/2))
+            "top-right"     = @(($iw - $totalW - $margin), $margin)
+            "bottom-left"   = @($margin, ($ih - $totalH - $margin))
+            "bottom-right"  = @(($iw - $totalW - $margin), ($ih - $totalH - $margin))
+            "center"        = @((($iw - $totalW)/2), (($ih - $totalH)/2))
         }
         $xy = $placements[$posVal]
         if (-not $xy) { $xy = $placements["bottom-right"] }
-        $g.DrawString($txt, $fontObj, $wmBrush, $xy[0], $xy[1])
+        & $DrawWatermarkBlock $g $xy[0] $xy[1]
     }
 
-    $fontObj.Dispose(); $wmBrush.Dispose(); $g.Dispose()
+    $fontL1.Dispose(); $fontL2.Dispose(); $wmBrush.Dispose(); $g.Dispose()
     return $baseBmp
 }
 
@@ -288,7 +312,7 @@ function Apply-Effects {
         $doc = $script:docs[$tab]
         if ($doc.hasImage) {
             $hasAny = $true
-            $processed = Process-SingleBitmap $tab $watermarkText.Text.Trim() $fontSizeTrack.Value $opacityTrack.Value $watermarkColorBtn.BackColor $posCombo.SelectedItem $fillColorBtn.BackColor $grayCheck.Checked
+            $processed = Process-SingleBitmap $tab $txtLine1.Text.Trim() $txtLine2.Text.Trim() $fontSizeTrack.Value $opacityTrack.Value $watermarkColorBtn.BackColor $posCombo.SelectedItem $fillColorBtn.BackColor $grayCheck.Checked
             if ($null -ne $processed) {
                 if ($doc.work) { $doc.work.Dispose() }
                 $doc.work = $processed
@@ -312,7 +336,8 @@ function Save-Image {
         [System.Windows.Forms.MessageBox]::Show("No hay ninguna imagen para exportar.", "Aviso"); return
     }
 
-    $txt = $watermarkText.Text.Trim()
+    $l1 = $txtLine1.Text.Trim()
+    $l2 = $txtLine2.Text.Trim()
     $fontSize = $fontSizeTrack.Value
     $opacity = $opacityTrack.Value
     $wmColor = $watermarkColorBtn.BackColor
@@ -326,8 +351,8 @@ function Save-Image {
         if ($ans -eq [System.Windows.Forms.DialogResult]::Cancel) { return }
         
         if ($ans -eq [System.Windows.Forms.DialogResult]::Yes) {
-            $finalFront = Process-SingleBitmap "Frontal" $txt $fontSize $opacity $wmColor $posVal $fillColor $toGray
-            $finalBack  = Process-SingleBitmap "Trasera" $txt $fontSize $opacity $wmColor $posVal $fillColor $toGray
+            $finalFront = Process-SingleBitmap "Frontal" $l1 $l2 $fontSize $opacity $wmColor $posVal $fillColor $toGray
+            $finalBack  = Process-SingleBitmap "Trasera" $l1 $l2 $fontSize $opacity $wmColor $posVal $fillColor $toGray
 
             $outW = [Math]::Max($finalFront.Width, $finalBack.Width)
             $outH = $finalFront.Height + $finalBack.Height + 30 
@@ -344,7 +369,7 @@ function Save-Image {
     }
 
     if ($null -eq $outputBmp) {
-        $outputBmp = Process-SingleBitmap $script:currentTab $txt $fontSize $opacity $wmColor $posVal $fillColor $toGray
+        $outputBmp = Process-SingleBitmap $script:currentTab $l1 $l2 $fontSize $opacity $wmColor $posVal $fillColor $toGray
     }
 
     $dlg = New-Object System.Windows.Forms.SaveFileDialog
@@ -403,7 +428,8 @@ function Save-IniConfig($verbose) {
     try {
         $sb = New-Object System.Text.StringBuilder
         [void]$sb.AppendLine("[General]")
-        [void]$sb.AppendLine("Text=$($watermarkText.Text)")
+        [void]$sb.AppendLine("Line1=$($txtLine1.Text)")
+        [void]$sb.AppendLine("Line2=$($txtLine2.Text)")
         [void]$sb.AppendLine("FontSize=$($fontSizeTrack.Value)")
         [void]$sb.AppendLine("Opacity=$($opacityTrack.Value)")
         [void]$sb.AppendLine("Position=$($posCombo.SelectedItem)")
@@ -457,7 +483,8 @@ function Load-IniConfig($verbose) {
 
             if ($currentSection -eq "General") {
                 switch ($key) {
-                    "Text"           { $watermarkText.Text = $val }
+                    "Line1"          { $txtLine1.Text = $val }
+                    "Line2"          { $txtLine2.Text = $val }
                     "FontSize"       { $fontSizeTrack.Value = [int]$val; $fsLbl.Text = "Tamaño Letra: $val" }
                     "Opacity"        { $opacityTrack.Value = [int]$val; $opLbl.Text = "Opacidad: $val%" }
                     "Position"       { $posCombo.SelectedItem = $val }
@@ -496,9 +523,10 @@ function Load-IniConfig($verbose) {
 # ── UI CONSTRUCCIÓN ────────────────────────────────────────────────────────
 
 $form = New-Object System.Windows.Forms.Form
-$form.Text          = "Photo Eraser & Watermark Pro (v10)"
-$form.Size          = New-Object System.Drawing.Size(1250, 890)
-$form.MinimumSize   = New-Object System.Drawing.Size(950, 700)
+$form.Text          = "Photo Eraser & Watermark Pro (v11)"
+# ARREGLADO: Incrementamos la altura inicial de 890 a 920 para que entre el último botón con holgura
+$form.Size          = New-Object System.Drawing.Size(1250, 920)
+$form.MinimumSize   = New-Object System.Drawing.Size(950, 750)
 $form.StartPosition = "CenterScreen"
 
 $mainLayout = New-Object System.Windows.Forms.TableLayoutPanel
@@ -572,12 +600,11 @@ $canvasPictureBox.Add_Resize({ Update-Canvas })
 
 $panel = New-Object System.Windows.Forms.Panel
 $panel.Dock = "Fill"
-$panel.AutoScroll = $false  # ARREGLADO: Desactivamos scroll automático molesto
+$panel.AutoScroll = $false
 $panel.Padding = New-Object System.Windows.Forms.Padding(12)
 $mainLayout.Controls.Add($panel, 1, 0)
 
 $yPos = 12
-# ARREGLADO: El ancho de los componentes se adapta automáticamente al espacio real disponible en el panel
 function Add-GuiElement($obj, $hGap=6) {
     $obj.Location = New-Object System.Drawing.Point(12, $script:yPos)
     $obj.Width = $panel.ClientSize.Width - 24
@@ -601,38 +628,44 @@ Add-GuiElement $openBtn
 
 $saveBtn = New-Object System.Windows.Forms.Button -Property @{Text="GUARDAR RESULTADO FINAL"; Height=36; BackColor=[System.Drawing.Color]::LightGreen; Font=New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)}
 $saveBtn.Add_Click({ Save-Image })
-Add-GuiElement $saveBtn 15
+Add-GuiElement $saveBtn 12
 
 Add-GuiLabel "Regiones de Censura" $true
-$listBox = New-Object System.Windows.Forms.ListBox -Property @{Height=85}
+$listBox = New-Object System.Windows.Forms.ListBox -Property @{Height=80}
 Add-GuiElement $listBox
 
-$removeBtn = New-Object System.Windows.Forms.Button -Property @{Text="Eliminar Seleccionada"; Height=25}
+$removeBtn = New-Object System.Windows.Forms.Button -Property @{Text="Eliminar Seleccionada"; Height=24}
 $removeBtn.Add_Click({ Remove-Selected })
 Add-GuiElement $removeBtn
 
-$clearBtn = New-Object System.Windows.Forms.Button -Property @{Text="Limpiar Todas las Zonas"; Height=25}
+$clearBtn = New-Object System.Windows.Forms.Button -Property @{Text="Limpiar Todas las Zonas"; Height=24}
 $clearBtn.Add_Click({ Clear-Selections })
-Add-GuiElement $clearBtn 15
+Add-GuiElement $clearBtn 12
 
 Add-GuiLabel "Color de Ocultación / Tapado" $true
-$fillColorBtn = New-Object System.Windows.Forms.Button -Property @{Text="Elegir Color de Relleno"; Height=25; BackColor=[System.Drawing.Color]::DarkGray}
+$fillColorBtn = New-Object System.Windows.Forms.Button -Property @{Text="Elegir Color de Relleno"; Height=24; BackColor=[System.Drawing.Color]::DarkGray}
 $fillColorBtn.Add_Click({
     $cd = New-Object System.Windows.Forms.ColorDialog
     if ($cd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $fillColorBtn.BackColor = $cd.Color; Save-IniConfig $false }
 })
-Add-GuiElement $fillColorBtn 12
+Add-GuiElement $fillColorBtn 10
 
 $grayCheck = New-Object System.Windows.Forms.CheckBox -Property @{Text="Convertir imagen a Escala de Grises"; AutoSize=$true; Checked=$false}
 $grayCheck.Add_CheckedChanged({ Save-IniConfig $false })
-Add-GuiElement $grayCheck 15
+Add-GuiElement $grayCheck 12
 
 Add-GuiLabel "Configuración Marca de Agua" $true
 
-Add-GuiLabel "Texto de Protección:"
-$watermarkText = New-Object System.Windows.Forms.TextBox -Property @{Text="COPIA RESTRINGIDA"}
-$watermarkText.Add_TextChanged({ Save-IniConfig $false })
-Add-GuiElement $watermarkText
+# NUEVO: Doble campo de texto optimizado para Entidad y Motivo
+Add-GuiLabel "Línea 1: Entidad / Destinatario"
+$txtLine1 = New-Object System.Windows.Forms.TextBox -Property @{Text="CHUMBA"}
+$txtLine1.Add_TextChanged({ Save-IniConfig $false })
+Add-GuiElement $txtLine1 4
+
+Add-GuiLabel "Línea 2: Motivo / Uso exclusivo"
+$txtLine2 = New-Object System.Windows.Forms.TextBox -Property @{Text="CAMBIO A E-SIM"}
+$txtLine2.Add_TextChanged({ Save-IniConfig $false })
+Add-GuiElement $txtLine2
 
 $fsLbl = New-Object System.Windows.Forms.Label -Property @{Text="Tamaño Letra: 35"; AutoSize=$true}
 Add-GuiElement $fsLbl 0
@@ -654,19 +687,18 @@ $posCombo.Add_SelectedIndexChanged({ Save-IniConfig $false })
 Add-GuiElement $posCombo
 
 Add-GuiLabel "Color Texto:"
-$watermarkColorBtn = New-Object System.Windows.Forms.Button -Property @{Text="Elegir Color"; Height=25; BackColor=[System.Drawing.Color]::Red}
+$watermarkColorBtn = New-Object System.Windows.Forms.Button -Property @{Text="Elegir Color"; Height=24; BackColor=[System.Drawing.Color]::Red}
 $watermarkColorBtn.Add_Click({
     $cd = New-Object System.Windows.Forms.ColorDialog
     if ($cd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $watermarkColorBtn.BackColor = $cd.Color; Save-IniConfig $false }
 })
-Add-GuiElement $watermarkColorBtn 12
+Add-GuiElement $watermarkColorBtn 10
 
 $applyBtn = New-Object System.Windows.Forms.Button -Property @{Text="APLICAR EFECTOS"; Height=42; Font=New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold); BackColor=[System.Drawing.Color]::LightSkyBlue}
 $applyBtn.Add_Click({ Apply-Effects })
-Add-GuiElement $applyBtn 20
+Add-GuiElement $applyBtn 15
 
 Add-GuiLabel "Persistencia de Datos" $true
-# ARREGLADO: Botones apilados verticalmente a ancho completo para evitar cualquier tipo de corte
 $btnSaveSession = New-Object System.Windows.Forms.Button -Property @{Text="Guardar Configuración"; Height=28; BackColor=[System.Drawing.Color]::WhiteSmoke}
 $btnSaveSession.Add_Click({ Save-IniConfig $true })
 Add-GuiElement $btnSaveSession 4
