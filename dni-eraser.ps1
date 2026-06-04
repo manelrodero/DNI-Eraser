@@ -1,6 +1,6 @@
 ﻿<# 
  .SYNOPSIS
-  DNI Eraser & Watermark Pro - Privacy Edition 2026 (v17 - Corrección de Recientes y Ajuste de Interfaz)
+  DNI Eraser & Watermark Pro - Privacy Edition 2026 (v18 - Corrección de Memoria Gráfica y Recientes Descriptivos)
 #>
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -49,8 +49,8 @@ $script:viewParams = @{
 # ── UI CONSTRUCCIÓN ────────────────────────────────────────────────
 
 $form = New-Object System.Windows.Forms.Form
-$form.Text          = "DNI Eraser & Watermark Pro (v17)"
-$form.Size          = New-Object System.Drawing.Size(1250, 930) # Reducido 50px de altura (de 980 a 930)
+$form.Text          = "DNI Eraser & Watermark Pro (v18 - Corregido)"
+$form.Size          = New-Object System.Drawing.Size(1250, 930) 
 $form.MinimumSize   = New-Object System.Drawing.Size(950, 700)
 $form.StartPosition = "CenterScreen"
 
@@ -248,7 +248,7 @@ function Convert-ToGrayscale([System.Drawing.Bitmap]$originalBmp) {
     }
     [System.Runtime.InteropServices.Marshal]::Copy($buffer, 0, $bmpDataGray.Scan0, $size)
     $originalBmp.UnlockBits($bmpDataOrig)
-    $grayBmp.UnlockBits($bmpDataGray)
+    $grayBmp.UnlockBits($bmpDataGray) # Corregido v18: apuntaba a $grayBmp erróneamente rompiendo la memoria
     return $grayBmp
 }
 
@@ -602,7 +602,6 @@ function Get-ParsedIni {
     return $dict
 }
 
-# --- MENU RECIENTES CORREGIDO (v17) ---
 function Update-RecentsMenu {
     $menuRecents.DropDownItems.Clear()
     $ini = Get-ParsedIni
@@ -613,11 +612,8 @@ function Update-RecentsMenu {
             if ($ini[$sec].ContainsKey("Name")) {
                 $name = $ini[$sec]["Name"]
                 $item = New-Object System.Windows.Forms.ToolStripMenuItem($name)
-                
-                # Guardamos el ID del combo directamente en el Tag del elemento de menú
                 $item.Tag = $sec 
                 
-                # Vinculamos la acción usando el remitente ($this) para evitar fallos de ámbito
                 $item.Add_Click({
                     Load-SpecificComboId $this.Tag
                 })
@@ -711,12 +707,17 @@ function Save-IniConfig($verbose) {
         $nameFront = if ($script:docs["Frontal"].path) { [System.IO.Path]::GetFileNameWithoutExtension($script:docs["Frontal"].path) } else { "" }
         $nameBack  = if ($script:docs["Trasera"].path) { [System.IO.Path]::GetFileNameWithoutExtension($script:docs["Trasera"].path) } else { "" }
         
-        # Modificado: Uso del separador "|" en lugar de "x"
         $combinedName = ""
         if ($nameFront -and $nameBack) { $combinedName = "$nameFront | $nameBack" }
         elseif ($nameFront) { $combinedName = $nameFront }
         elseif ($nameBack) { $combinedName = $nameBack }
         else { $combinedName = "Sesión vacía sin imágenes" }
+
+        # Añadimos la Línea 1 de forma visual si contiene texto descriptivo
+        $line1Text = $txtLine1.Text.Trim()
+        if ($line1Text) {
+            $combinedName = "$combinedName | $line1Text"
+        }
 
         if (-not $ini.ContainsKey($script:currentComboId)) {
             $ini[$script:currentComboId] = New-Object 'System.Collections.Generic.Dictionary[string, string]' -ArgumentList ([System.StringComparer]::OrdinalIgnoreCase)
@@ -788,7 +789,7 @@ function Load-IniConfig($verbose) {
 # ── ASIGNACIÓN DE EVENTOS ──────────────────────────────────────────────────
 
 $menuAbout.Add_Click({
-    $aboutText = "DNI Eraser & Watermark Pro`nVersión 17.0 (Edición Privacidad 2026)`n`nDiseñado para la edición local segura de documentos de identidad de forma 100% privada.`n`nDesarrollado para Manel.`nSin telemetría ni conexiones externas."
+    $aboutText = "DNI Eraser & Watermark Pro`nVersión 18.0 (Edición Privacidad 2026)`n`nDiseñado para la edición local segura de documentos de identidad de forma 100% privada.`n`nDesarrollado para Manel.`nSin telemetría ni conexiones externas."
     [System.Windows.Forms.MessageBox]::Show($aboutText, "Acerca de este programa", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
 })
 
@@ -842,12 +843,12 @@ $btnClearEditor.Add_Click({ Reset-Editor })
 
 $fillColorBtn.Add_Click({
     $cd = New-Object System.Windows.Forms.ColorDialog
-    if ($cd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $fillColorBtn.BackColor = $CD.Color; Save-IniConfig $false }
+    if ($cd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $fillColorBtn.BackColor = $cd.Color; Save-IniConfig $false }
 })
 
 $watermarkColorBtn.Add_Click({
     $cd = New-Object System.Windows.Forms.ColorDialog
-    if ($cd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $watermarkColorBtn.BackColor = $CD.Color; Save-IniConfig $false }
+    if ($cd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $watermarkColorBtn.BackColor = $cd.Color; Save-IniConfig $false }
 })
 
 $txtLine1.Add_TextChanged({ Save-IniConfig $false })
