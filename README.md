@@ -18,6 +18,24 @@ La herramienta realiza los cálculos dinámicos de redimensionamiento y escalado
 
 ![DNI Eraser Screenshot (Final)](./assets/DNI-Eraser-Screenshot-Result.png)
 
+## Descarga y ejecución
+
+Para poder ejecutar este programa es necesario **descargar** este repositorio en formato ZIP:
+
+![Download ZIP](./assets/Code-Download-ZIP.png)
+
+Descomprimirlo en algún sitio y pulsar el botón derecho del ratón para seleccionar la opción **Run with PowerShell** (o su traducción equivalente):
+
+![Run with PowerShell](./assets/Run-with-PowerShell.png)
+
+Una vez ejecutado, el programa cargará la configuración de ejemplo (un DNI español y un DNI argentino) con algunas zonas de censura y marcas de agua configuradas.
+
+Puedes jugar con estos ejemplos o limpiar el editor para cargar las imágenes de tu documento de identidad.
+
+Una vez configurados todos los parámetros, se puede pulsar el botón `APLICAR EFECTOS` para ver el resultado en pantalla y el botón `GUARDAR RESULTADO FINAL` para guardar la imagen resultante.
+
+A partir de aquí ya tocaría "batallar" con la empresa u organismo de turno para que acepten este **documento ofuscado** tal como dice la [FAQ "Identificación con DNI" de la AEPD](https://www.aepd.es/preguntas-frecuentes/1-tus-derechos/3-identificacion-con-dni).
+
 ## CHANGELOG DETALLADO
 
 ### 📌 Orígenes y migración inicial
