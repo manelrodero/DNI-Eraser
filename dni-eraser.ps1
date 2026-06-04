@@ -1,6 +1,6 @@
 ﻿<# 
  .SYNOPSIS
-  DNI Eraser & Watermark Pro - Privacy Edition 2026 (v16 - Historial y Sesiones Múltiples)
+  DNI Eraser & Watermark Pro - Privacy Edition 2026 (v17 - Corrección de Recientes y Ajuste de Interfaz)
 #>
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -49,9 +49,9 @@ $script:viewParams = @{
 # ── UI CONSTRUCCIÓN ────────────────────────────────────────────────
 
 $form = New-Object System.Windows.Forms.Form
-$form.Text          = "DNI Eraser & Watermark Pro (v16)"
-$form.Size          = New-Object System.Drawing.Size(1250, 980)
-$form.MinimumSize   = New-Object System.Drawing.Size(950, 750)
+$form.Text          = "DNI Eraser & Watermark Pro (v17)"
+$form.Size          = New-Object System.Drawing.Size(1250, 930) # Reducido 50px de altura (de 980 a 930)
+$form.MinimumSize   = New-Object System.Drawing.Size(950, 700)
 $form.StartPosition = "CenterScreen"
 
 # --- Barra de Menú Superior ---
@@ -186,7 +186,7 @@ Add-GuiElement $grayCheck 15
 $applyBtn = New-Object System.Windows.Forms.Button -Property @{Text="APLICAR EFECTOS"; Height=42; Font=New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold); BackColor=[System.Drawing.Color]::LightSkyBlue}
 Add-GuiElement $applyBtn 15
 
-# Espacio liberado ocupado por el nuevo botón LIMPIAR EDITOR
+# Botón LIMPIAR EDITOR
 $btnClearEditor = New-Object System.Windows.Forms.Button -Property @{Text="LIMPIAR EDITOR"; Height=32; BackColor=[System.Drawing.Color]::Khaki; Font=New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)}
 Add-GuiElement $btnClearEditor
 
@@ -602,6 +602,7 @@ function Get-ParsedIni {
     return $dict
 }
 
+# --- MENU RECIENTES CORREGIDO (v17) ---
 function Update-RecentsMenu {
     $menuRecents.DropDownItems.Clear()
     $ini = Get-ParsedIni
@@ -611,12 +612,16 @@ function Update-RecentsMenu {
         if ($sec.StartsWith("ImageCombo", [System.StringComparison]::OrdinalIgnoreCase)) {
             if ($ini[$sec].ContainsKey("Name")) {
                 $name = $ini[$sec]["Name"]
-                $id = $sec
                 $item = New-Object System.Windows.Forms.ToolStripMenuItem($name)
-                $item.Tag = $id
+                
+                # Guardamos el ID del combo directamente en el Tag del elemento de menú
+                $item.Tag = $sec 
+                
+                # Vinculamos la acción usando el remitente ($this) para evitar fallos de ámbito
                 $item.Add_Click({
-                    Load-SpecificComboId $_.OwnerItem.Tag
+                    Load-SpecificComboId $this.Tag
                 })
+                
                 [void]$menuRecents.DropDownItems.Add($item)
                 $hasRecents = $true
             }
@@ -706,8 +711,9 @@ function Save-IniConfig($verbose) {
         $nameFront = if ($script:docs["Frontal"].path) { [System.IO.Path]::GetFileNameWithoutExtension($script:docs["Frontal"].path) } else { "" }
         $nameBack  = if ($script:docs["Trasera"].path) { [System.IO.Path]::GetFileNameWithoutExtension($script:docs["Trasera"].path) } else { "" }
         
+        # Modificado: Uso del separador "|" en lugar de "x"
         $combinedName = ""
-        if ($nameFront -and $nameBack) { $combinedName = "$nameFront x $nameBack" }
+        if ($nameFront -and $nameBack) { $combinedName = "$nameFront | $nameBack" }
         elseif ($nameFront) { $combinedName = $nameFront }
         elseif ($nameBack) { $combinedName = $nameBack }
         else { $combinedName = "Sesión vacía sin imágenes" }
@@ -782,7 +788,7 @@ function Load-IniConfig($verbose) {
 # ── ASIGNACIÓN DE EVENTOS ──────────────────────────────────────────────────
 
 $menuAbout.Add_Click({
-    $aboutText = "DNI Eraser & Watermark Pro`nVersión 16.0 (Edición Privacidad 2026 - Sesiones Coexistentes)`n`nDiseñado para la edición local segura de documentos de identidad de forma 100% privada.`n`nDesarrollado para Manel.`nSin telemetría ni conexiones externas."
+    $aboutText = "DNI Eraser & Watermark Pro`nVersión 17.0 (Edición Privacidad 2026)`n`nDiseñado para la edición local segura de documentos de identidad de forma 100% privada.`n`nDesarrollado para Manel.`nSin telemetría ni conexiones externas."
     [System.Windows.Forms.MessageBox]::Show($aboutText, "Acerca de este programa", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
 })
 
