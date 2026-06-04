@@ -1,6 +1,6 @@
 ﻿<# 
  .SYNOPSIS
-  Photo Eraser & Watermark Tool - Privacy Edition 2026 (v8)
+  Photo Eraser & Watermark Tool - Privacy Edition 2026 (v9)
 #>
 
 # Forzar codificación UTF-8 en la consola para evitar fallos de acentos
@@ -39,6 +39,7 @@ $script:currentTab   = "Frontal"
 $script:isDragging   = $false
 $script:dragStart    = $null
 $script:dragEnd      = $null
+$script:loading      = $false  # ¡NUEVO!: Evita escrituras accidentales en cascada durante la carga
 
 $script:viewParams = @{
     "Frontal" = @{ scale = 1.0; xOffset = 0; yOffset = 0 }
@@ -394,9 +395,12 @@ function Remove-Selected {
     Save-IniConfig $false
 }
 
-# ── Serialización de Archivos de Configuración INI Corregida ────────────────
+# ── Serialización de Archivos de Configuración INI ─────────────────────────
 
 function Save-IniConfig($verbose) {
+    # ¡NUEVO!: Si el programa está cargando datos, ignoramos por completo cualquier guardado automático para no romper el archivo
+    if ($script:loading -and -not $verbose) { return }
+
     try {
         $sb = New-Object System.Text.StringBuilder
         [void]$sb.AppendLine("[General]")
@@ -406,7 +410,6 @@ function Save-IniConfig($verbose) {
         [void]$sb.AppendLine("Position=$($posCombo.SelectedItem)")
         [void]$sb.AppendLine("Grayscale=$($grayCheck.Checked)")
         
-        # CORRECCIÓN: Uso de ColorTranslator en lugar del método inexistente .ToHtml()
         $htmlFill  = [System.Drawing.ColorTranslator]::ToHtml($fillColorBtn.BackColor)
         $htmlWater = [System.Drawing.ColorTranslator]::ToHtml($watermarkColorBtn.BackColor)
         [void]$sb.AppendLine("FillColor=$htmlFill")
@@ -438,6 +441,8 @@ function Load-IniConfig($verbose) {
         return 
     }
     try {
+        $script:loading = $true # Activamos el escudo protector antiescrituras
+
         $lines = Get-Content $script:configFile -Encoding UTF8
         $currentSection = ""
         foreach ($line in $lines) {
@@ -484,13 +489,15 @@ function Load-IniConfig($verbose) {
         if ($verbose) { [System.Windows.Forms.MessageBox]::Show("Sesión restaurada correctamente.", "Éxito") }
     } catch {
         if ($verbose) { [System.Windows.Forms.MessageBox]::Show("Error al cargar sesión: $_", "Error") }
+    } finally {
+        $script:loading = $false # Desactivamos el escudo. A partir de ahora los cambios del usuario sí se guardarán.
     }
 }
 
 # ── UI CONSTRUCCIÓN ────────────────────────────────────────────────────────
 
 $form = New-Object System.Windows.Forms.Form
-$form.Text          = "Photo Eraser & Watermark Pro (v8)"
+$form.Text          = "Photo Eraser & Watermark Pro (v9)"
 $form.Size          = New-Object System.Drawing.Size(1250, 890)
 $form.MinimumSize   = New-Object System.Drawing.Size(950, 700)
 $form.StartPosition = "CenterScreen"
