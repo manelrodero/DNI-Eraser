@@ -1,6 +1,6 @@
 ﻿<# 
  .SYNOPSIS
-  DNI Eraser & Watermark Pro - Privacy Edition 2026 (v15 - Edición Equilibrada)
+  DNI Eraser & Watermark Pro - Privacy Edition 2026 (v16 - Historial y Sesiones Múltiples)
 #>
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -38,6 +38,9 @@ $script:dragStart    = $null
 $script:dragEnd      = $null
 $script:loading      = $false
 
+# ID de la sesión actual (por defecto ImageCombo0 si está vacío)
+$script:currentComboId = "ImageCombo0"
+
 $script:viewParams = @{
     "Frontal" = @{ scale = 1.0; xOffset = 0; yOffset = 0 }
     "Trasera" = @{ scale = 1.0; xOffset = 0; yOffset = 0 }
@@ -46,16 +49,30 @@ $script:viewParams = @{
 # ── UI CONSTRUCCIÓN ────────────────────────────────────────────────
 
 $form = New-Object System.Windows.Forms.Form
-$form.Text          = "DNI Eraser & Watermark Pro (v15)"
+$form.Text          = "DNI Eraser & Watermark Pro (v16)"
 $form.Size          = New-Object System.Drawing.Size(1250, 980)
 $form.MinimumSize   = New-Object System.Drawing.Size(950, 750)
 $form.StartPosition = "CenterScreen"
 
 # --- Barra de Menú Superior ---
 $menuBar = New-Object System.Windows.Forms.MenuStrip
+
+# Menú Configuraciones
+$menuConfig = New-Object System.Windows.Forms.ToolStripMenuItem("Configuraciones")
+$menuSaveSession = New-Object System.Windows.Forms.ToolStripMenuItem("Guardar configuración")
+$menuLoadSession = New-Object System.Windows.Forms.ToolStripMenuItem("Cargar configuración")
+$menuRecents = New-Object System.Windows.Forms.ToolStripMenuItem("Recientes")
+
+[void]$menuConfig.DropDownItems.Add($menuSaveSession)
+[void]$menuConfig.DropDownItems.Add($menuLoadSession)
+[void]$menuConfig.DropDownItems.Add($menuRecents)
+
+# Menú Ayuda
 $menuHelp = New-Object System.Windows.Forms.ToolStripMenuItem("Ayuda")
 $menuAbout = New-Object System.Windows.Forms.ToolStripMenuItem("Acerca de")
 [void]$menuHelp.DropDownItems.Add($menuAbout)
+
+[void]$menuBar.Items.Add($menuConfig)
 [void]$menuBar.Items.Add($menuHelp)
 $form.MainMenuStrip = $menuBar
 $form.Controls.Add($menuBar)
@@ -169,12 +186,9 @@ Add-GuiElement $grayCheck 15
 $applyBtn = New-Object System.Windows.Forms.Button -Property @{Text="APLICAR EFECTOS"; Height=42; Font=New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold); BackColor=[System.Drawing.Color]::LightSkyBlue}
 Add-GuiElement $applyBtn 15
 
-Add-GuiLabel "Persistencia de datos" $true
-$btnSaveSession = New-Object System.Windows.Forms.Button -Property @{Text="Guardar configuración"; Height=28; BackColor=[System.Drawing.Color]::WhiteSmoke}
-Add-GuiElement $btnSaveSession 4
-
-$btnLoadSession = New-Object System.Windows.Forms.Button -Property @{Text="Cargar configuración"; Height=28; BackColor=[System.Drawing.Color]::WhiteSmoke}
-Add-GuiElement $btnLoadSession
+# Espacio liberado ocupado por el nuevo botón LIMPIAR EDITOR
+$btnClearEditor = New-Object System.Windows.Forms.Button -Property @{Text="LIMPIAR EDITOR"; Height=32; BackColor=[System.Drawing.Color]::Khaki; Font=New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)}
+Add-GuiElement $btnClearEditor
 
 
 # ── LOGICA Y FUNCIONES ─────────────────────────────────────────────────────
@@ -264,6 +278,11 @@ function Open-Image {
     $dlg.Title  = "Seleccionar imagen ($script:currentTab)"
     $dlg.Filter = "Archivos de imagen|*.png;*.jpg;*.jpeg;*.bmp;*.webp;*.tiff"
     if ($dlg.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK) { return }
+    
+    if ($script:currentComboId -eq "ImageCombo0" -and -not $script:docs["Frontal"].hasImage -and -not $script:docs["Trasera"].hasImage) {
+        $script:currentComboId = Get-NextFreeComboId
+    }
+
     if (Open-Image-Path $dlg.FileName $script:currentTab) {
         $doc = Get-CurrentDoc
         $doc.rects = @()
@@ -383,7 +402,6 @@ function Process-SingleBitmap($tabName, $line1, $line2, $fontSizeUser, $opacity,
         }
     }
 
-    # ── AJUSTE DE REPETICIÓN DEL PATRÓN DE MOSAICO (Densidad recuperada) ──
     if ($posVal -eq "diagonal-tiled") {
         $hSpacing = [int]($totalW * 1.4)
         $vSpacing = [int]($totalH * 1.6) 
@@ -523,34 +541,215 @@ function Remove-Selected {
     Save-IniConfig $false
 }
 
+function Reset-Editor {
+    $script:loading = $true
+    
+    foreach ($tab in @("Frontal", "Trasera")) {
+        $doc = $script:docs[$tab]
+        if ($doc.original) { $doc.original.Dispose(); $doc.original = $null }
+        if ($doc.work) { $doc.work.Dispose(); $doc.work = $null }
+        $doc.rects = @()
+        $doc.hasImage = $false
+        $doc.path = $null
+    }
+
+    $txtLine1.Text = ""
+    $txtLine2.Text = ""
+    $fontSizeTrack.Value = 35
+    $fsLbl.Text = "Tamaño letra: 35"
+    $opacityTrack.Value = 35
+    $opLbl.Text = "Opacidad: 35%"
+    $posCombo.SelectedIndex = 6
+    $grayCheck.Checked = $false
+    $fillColorBtn.BackColor = [System.Drawing.Color]::DarkGray
+    $watermarkColorBtn.BackColor = [System.Drawing.Color]::Red
+
+    $script:currentComboId = "ImageCombo0"
+
+    $script:loading = $false
+    Sync-Listbox
+    Update-Canvas
+}
+
+function Get-NextFreeComboId {
+    if (-not (Test-Path $script:configFile)) { return "ImageCombo0" }
+    $ini = Get-ParsedIni
+    $i = 0
+    while ($ini.ContainsKey("ImageCombo$i")) { $i++ }
+    return "ImageCombo$i"
+}
+
+function Get-ParsedIni {
+    $dict = New-Object 'System.Collections.Generic.Dictionary[string, System.Collections.Generic.Dictionary[string, string]]' -ArgumentList ([System.StringComparer]::OrdinalIgnoreCase)
+    if (-not (Test-Path $script:configFile)) { return $dict }
+    $lines = Get-Content $script:configFile -Encoding UTF8
+    $currentSec = ""
+    foreach ($line in $lines) {
+        $l = $line.Trim()
+        if ($l.StartsWith("[") -and $l.EndsWith("]")) {
+            $currentSec = $l.Substring(1, $l.Length - 2)
+            if (-not $dict.ContainsKey($currentSec)) {
+                $dict[$currentSec] = New-Object 'System.Collections.Generic.Dictionary[string, string]' -ArgumentList ([System.StringComparer]::OrdinalIgnoreCase)
+            }
+            continue
+        }
+        if (-not $l.Contains("=") -or !$currentSec) { continue }
+        $idx = $l.IndexOf("=")
+        $key = $l.Substring(0, $idx).Trim()
+        $val = $l.Substring($idx + 1).Trim()
+        $dict[$currentSec][$key] = $val
+    }
+    return $dict
+}
+
+function Update-RecentsMenu {
+    $menuRecents.DropDownItems.Clear()
+    $ini = Get-ParsedIni
+    $hasRecents = $false
+
+    foreach ($sec in $ini.Keys) {
+        if ($sec.StartsWith("ImageCombo", [System.StringComparison]::OrdinalIgnoreCase)) {
+            if ($ini[$sec].ContainsKey("Name")) {
+                $name = $ini[$sec]["Name"]
+                $id = $sec
+                $item = New-Object System.Windows.Forms.ToolStripMenuItem($name)
+                $item.Tag = $id
+                $item.Add_Click({
+                    Load-SpecificComboId $_.OwnerItem.Tag
+                })
+                [void]$menuRecents.DropDownItems.Add($item)
+                $hasRecents = $true
+            }
+        }
+    }
+    if (-not $hasRecents) {
+        $emptyItem = New-Object System.Windows.Forms.ToolStripMenuItem("(No hay documentos recientes)")
+        $emptyItem.Enabled = $false
+        [void]$menuRecents.DropDownItems.Add($emptyItem)
+    }
+}
+
+function Load-SpecificComboId($comboId) {
+    try {
+        $script:loading = $true
+        $ini = Get-ParsedIni
+        if (-not $ini.ContainsKey($comboId)) { return }
+        
+        foreach ($tab in @("Frontal", "Trasera")) {
+            $doc = $script:docs[$tab]
+            if ($doc.original) { $doc.original.Dispose(); $doc.original = $null }
+            if ($doc.work) { $doc.work.Dispose(); $doc.work = $null }
+            $doc.rects = @()
+            $doc.hasImage = $false
+            $doc.path = $null
+        }
+
+        $sec = $ini[$comboId]
+        $script:currentComboId = $comboId
+
+        if ($sec.ContainsKey("Line1")) { $txtLine1.Text = $sec["Line1"] }
+        if ($sec.ContainsKey("Line2")) { $txtLine2.Text = $sec["Line2"] }
+        if ($sec.ContainsKey("FontSize")) { $fontSizeTrack.Value = [int]$sec["FontSize"]; $fsLbl.Text = "Tamaño letra: $($sec["FontSize"])" }
+        if ($sec.ContainsKey("Opacity")) { $opacityTrack.Value = [int]$sec["Opacity"]; $opLbl.Text = "Opacidad: $($sec["Opacity"])%" }
+        if ($sec.ContainsKey("Position")) { $posCombo.SelectedItem = $sec["Position"] }
+        if ($sec.ContainsKey("Grayscale")) { $grayCheck.Checked = [System.Convert]::ToBoolean($sec["Grayscale"]) }
+        if ($sec.ContainsKey("FillColor")) { $fillColorBtn.BackColor = [System.Drawing.ColorTranslator]::FromHtml($sec["FillColor"]) }
+        if ($sec.ContainsKey("WatermarkColor")) { $watermarkColorBtn.BackColor = [System.Drawing.ColorTranslator]::FromHtml($sec["WatermarkColor"]) }
+
+        if ($sec.ContainsKey("FrontalPath") -and $sec["FrontalPath"]) {
+            [void](Open-Image-Path $sec["FrontalPath"] "Frontal")
+        }
+        if ($sec.ContainsKey("FrontalRects") -and $sec["FrontalRects"]) {
+            $script:docs["Frontal"].rects = @()
+            foreach ($sr in $sec["FrontalRects"].Split(';')) {
+                if (-not $sr) { continue }
+                $coords = $sr.Split(',')
+                if ($coords.Count -eq 4) {
+                    $script:docs["Frontal"].rects += New-Object System.Drawing.Rectangle ([int]$coords[0]), ([int]$coords[1]), ([int]$coords[2]), ([int]$coords[3])
+                }
+            }
+        }
+
+        if ($sec.ContainsKey("RearPath") -and $sec["RearPath"]) {
+            [void](Open-Image-Path $sec["RearPath"] "Trasera")
+        }
+        if ($sec.ContainsKey("RearRects") -and $sec["RearRects"]) {
+            $script:docs["Trasera"].rects = @()
+            foreach ($sr in $sec["RearRects"].Split(';')) {
+                if (-not $sr) { continue }
+                $coords = $sr.Split(',')
+                if ($coords.Count -eq 4) {
+                    $script:docs["Trasera"].rects += New-Object System.Drawing.Rectangle ([int]$coords[0]), ([int]$coords[1]), ([int]$coords[2]), ([int]$coords[3])
+                }
+            }
+        }
+
+        Sync-Listbox
+        Update-Canvas
+    } catch {
+        [System.Windows.Forms.MessageBox]::Show("Error al cargar la sesión específica: $_", "Error")
+    } finally {
+        $script:loading = $false
+    }
+}
+
 function Save-IniConfig($verbose) {
     if ($script:loading -and -not $verbose) { return }
     try {
-        $sb = New-Object System.Text.StringBuilder
-        [void]$sb.AppendLine("[General]")
-        [void]$sb.AppendLine("Line1=$($txtLine1.Text)")
-        [void]$sb.AppendLine("Line2=$($txtLine2.Text)")
-        [void]$sb.AppendLine("FontSize=$($fontSizeTrack.Value)")
-        [void]$sb.AppendLine("Opacity=$($opacityTrack.Value)")
-        [void]$sb.AppendLine("Position=$($posCombo.SelectedItem)")
-        [void]$sb.AppendLine("Grayscale=$($grayCheck.Checked)")
-        $htmlFill  = [System.Drawing.ColorTranslator]::ToHtml($fillColorBtn.BackColor)
-        $htmlWater = [System.Drawing.ColorTranslator]::ToHtml($watermarkColorBtn.BackColor)
-        [void]$sb.AppendLine("FillColor=$htmlFill")
-        [void]$sb.AppendLine("WatermarkColor=$htmlWater")
-        foreach ($tab in @("Frontal", "Trasera")) {
-            [void]$sb.AppendLine("[$tab]")
-            $relPath = Get-RelativeOrAbsolute $script:docs[$tab].path
-            [void]$sb.AppendLine("Path=$relPath")
-            $rStrings = @()
-            foreach ($r in $script:docs[$tab].rects) {
-                $rStrings += "$($r.X),$($r.Y),$($r.Width),$($r.Height)"
-            }
-            [void]$sb.AppendLine("Rects=$($rStrings -join ';')")
+        $ini = Get-ParsedIni
+
+        if (-not $ini.ContainsKey("General")) {
+            $ini["General"] = New-Object 'System.Collections.Generic.Dictionary[string, string]' -ArgumentList ([System.StringComparer]::OrdinalIgnoreCase)
         }
+        $ini["General"]["LastImageCombo"] = $script:currentComboId
+
+        $nameFront = if ($script:docs["Frontal"].path) { [System.IO.Path]::GetFileNameWithoutExtension($script:docs["Frontal"].path) } else { "" }
+        $nameBack  = if ($script:docs["Trasera"].path) { [System.IO.Path]::GetFileNameWithoutExtension($script:docs["Trasera"].path) } else { "" }
+        
+        $combinedName = ""
+        if ($nameFront -and $nameBack) { $combinedName = "$nameFront x $nameBack" }
+        elseif ($nameFront) { $combinedName = $nameFront }
+        elseif ($nameBack) { $combinedName = $nameBack }
+        else { $combinedName = "Sesión vacía sin imágenes" }
+
+        if (-not $ini.ContainsKey($script:currentComboId)) {
+            $ini[$script:currentComboId] = New-Object 'System.Collections.Generic.Dictionary[string, string]' -ArgumentList ([System.StringComparer]::OrdinalIgnoreCase)
+        }
+
+        $sec = $ini[$script:currentComboId]
+        $sec["Name"]           = $combinedName
+        $sec["Line1"]          = $txtLine1.Text
+        $sec["Line2"]          = $txtLine2.Text
+        $sec["FontSize"]       = $fontSizeTrack.Value.ToString()
+        $sec["Opacity"]        = $opacityTrack.Value.ToString()
+        $sec["Position"]       = $posCombo.SelectedItem
+        $sec["Grayscale"]      = $grayCheck.Checked.ToString()
+        $sec["FillColor"]      = [System.Drawing.ColorTranslator]::ToHtml($fillColorBtn.BackColor)
+        $sec["WatermarkColor"] = [System.Drawing.ColorTranslator]::ToHtml($watermarkColorBtn.BackColor)
+        $sec["FrontalPath"]    = Get-RelativeOrAbsolute $script:docs["Frontal"].path
+        $sec["RearPath"]       = Get-RelativeOrAbsolute $script:docs["Trasera"].path
+
+        $fRects = @()
+        foreach ($r in $script:docs["Frontal"].rects) { $fRects += "$($r.X),$($r.Y),$($r.Width),$($r.Height)" }
+        $sec["FrontalRects"]   = $fRects -join ';'
+
+        $rRects = @()
+        foreach ($r in $script:docs["Trasera"].rects) { $rRects += "$($r.X),$($r.Y),$($r.Width),$($r.Height)" }
+        $sec["RearRects"]      = $rRects -join ';'
+
+        $sb = New-Object System.Text.StringBuilder
+        foreach ($sectionName in $ini.Keys) {
+            [void]$sb.AppendLine("[$sectionName]")
+            foreach ($key in $ini[$sectionName].Keys) {
+                [void]$sb.AppendLine("$key=$($ini[$sectionName][$key])")
+            }
+        }
+
         [System.IO.File]::WriteAllText($script:configFile, $sb.ToString(), [System.Text.Encoding]::UTF8)
+        Update-RecentsMenu
+
         if ($verbose) {
-            [System.Windows.Forms.MessageBox]::Show("Configuración guardada correctamente en:`n$script:configFile", "Éxito")
+            [System.Windows.Forms.MessageBox]::Show("Configuración guardada correctamente en el perfil actual.", "Éxito")
         }
     } catch {
         if ($verbose) { [System.Windows.Forms.MessageBox]::Show("Error al guardar configuración: $_", "Error") }
@@ -560,68 +759,35 @@ function Save-IniConfig($verbose) {
 function Load-IniConfig($verbose) {
     if (-not (Test-Path $script:configFile)) { 
         if ($verbose) { [System.Windows.Forms.MessageBox]::Show("No se encontró ningún archivo de sesión anterior.", "Aviso") }
+        Update-RecentsMenu
         return 
     }
     try {
-        $script:loading = $true
-        $lines = Get-Content $script:configFile -Encoding UTF8
-        $currentSection = ""
-        foreach ($line in $lines) {
-            $l = $line.Trim()
-            if ($l.StartsWith("[") -and $l.EndsWith("]")) {
-                $currentSection = $l.Substring(1, $l.Length - 2)
-                continue
-            }
-            if (-not $l.Contains("=")) { continue }
-            $idx = $l.IndexOf("=")
-            $key = $l.Substring(0, $idx).Trim()
-            $val = $l.Substring($idx + 1).Trim()
-
-            if ($currentSection -eq "General") {
-                switch ($key) {
-                    "Line1"          { $txtLine1.Text = $val }
-                    "Line2"          { $txtLine2.Text = $val }
-                    "FontSize"       { $fontSizeTrack.Value = [int]$val; $fsLbl.Text = "Tamaño letra: $val" }
-                    "Opacity"        { $opacityTrack.Value = [int]$val; $opLbl.Text = "Opacidad: $val%" }
-                    "Position"       { $posCombo.SelectedItem = $val }
-                    "Grayscale"      { $grayCheck.Checked = [System.Convert]::ToBoolean($val) }
-                    "FillColor"      { $fillColorBtn.BackColor = [System.Drawing.ColorTranslator]::FromHtml($val) }
-                    "WatermarkColor" { $watermarkColorBtn.BackColor = [System.Drawing.ColorTranslator]::FromHtml($val) }
-                }
-            } elseif ($currentSection -eq "Frontal" -or $currentSection -eq "Trasera") {
-                $doc = $script:docs[$currentSection]
-                if ($key -eq "Path" -and $val) {
-                    [void](Open-Image-Path $val $currentSection)
-                } elseif ($key -eq "Rects" -and $val) {
-                    $doc.rects = @()
-                    $splitRects = $val.Split(';')
-                    foreach ($sr in $splitRects) {
-                        if (-not $sr) { continue }
-                        $coords = $sr.Split(',')
-                        if ($coords.Count -eq 4) {
-                            $rect = New-Object System.Drawing.Rectangle ([int]$coords[0]), ([int]$coords[1]), ([int]$coords[2]), ([int]$coords[3])
-                            $doc.rects += $rect
-                        }
-                    }
-                }
-            }
+        $ini = Get-ParsedIni
+        $targetCombo = "ImageCombo0"
+        if ($ini.ContainsKey("General") -and $ini["General"].ContainsKey("LastImageCombo")) {
+            $targetCombo = $ini["General"]["LastImageCombo"]
         }
-        Sync-Listbox
-        Update-Canvas
-        if ($verbose) { [System.Windows.Forms.MessageBox]::Show("Configuración restaurada correctamente.", "Éxito") }
+        if ($ini.ContainsKey($targetCombo)) {
+            Load-SpecificComboId $targetCombo
+        }
+        Update-RecentsMenu
+        if ($verbose) { [System.Windows.Forms.MessageBox]::Show("Última configuración activa restaurada.", "Éxito") }
     } catch {
-        if ($verbose) { [System.Windows.Forms.MessageBox]::Show("Error al cargar configuración: $_", "Error") }
-    } finally {
-        $script:loading = $false
+        if ($verbose) { [System.Windows.Forms.MessageBox]::Show("Error al cargar configuración general: $_", "Error") }
     }
 }
+
 
 # ── ASIGNACIÓN DE EVENTOS ──────────────────────────────────────────────────
 
 $menuAbout.Add_Click({
-    $aboutText = "DNI Eraser & Watermark Pro`nVersión 15.0 (Edición Privacidad 2026)`n`nDiseñado para la edición local segura de documentos de identidad de forma 100% privada.`n`nDesarrollado para Manel.`nSin telemetría ni conexiones externas."
+    $aboutText = "DNI Eraser & Watermark Pro`nVersión 16.0 (Edición Privacidad 2026 - Sesiones Coexistentes)`n`nDiseñado para la edición local segura de documentos de identidad de forma 100% privada.`n`nDesarrollado para Manel.`nSin telemetría ni conexiones externas."
     [System.Windows.Forms.MessageBox]::Show($aboutText, "Acerca de este programa", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
 })
+
+$menuSaveSession.Add_Click({ Save-IniConfig $true })
+$menuLoadSession.Add_Click({ Load-IniConfig $true })
 
 $tabStrip.Add_SelectedIndexChanged({
     $script:currentTab = if ($tabStrip.SelectedIndex -eq 1) { "Trasera" } else { "Frontal" }
@@ -666,15 +832,16 @@ $saveBtn.Add_Click({ Save-Image })
 $removeBtn.Add_Click({ Remove-Selected })
 $clearBtn.Add_Click({ Clear-Selections })
 $applyBtn.Add_Click({ Apply-Effects })
+$btnClearEditor.Add_Click({ Reset-Editor })
 
 $fillColorBtn.Add_Click({
     $cd = New-Object System.Windows.Forms.ColorDialog
-    if ($cd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $fillColorBtn.BackColor = $cd.Color; Save-IniConfig $false }
+    if ($cd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $fillColorBtn.BackColor = $CD.Color; Save-IniConfig $false }
 })
 
 $watermarkColorBtn.Add_Click({
     $cd = New-Object System.Windows.Forms.ColorDialog
-    if ($cd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $watermarkColorBtn.BackColor = $cd.Color; Save-IniConfig $false }
+    if ($cd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $watermarkColorBtn.BackColor = $CD.Color; Save-IniConfig $false }
 })
 
 $txtLine1.Add_TextChanged({ Save-IniConfig $false })
@@ -683,9 +850,6 @@ $fontSizeTrack.Add_Scroll({ $fsLbl.Text = "Tamaño letra: $($fontSizeTrack.Value
 $opacityTrack.Add_Scroll({ $opLbl.Text = "Opacidad: $($opacityTrack.Value)%"; Save-IniConfig $false })
 $posCombo.Add_SelectedIndexChanged({ Save-IniConfig $false })
 $grayCheck.Add_CheckedChanged({ Save-IniConfig $false })
-
-$btnSaveSession.Add_Click({ Save-IniConfig $true })
-$btnLoadSession.Add_Click({ Load-IniConfig $true })
 
 $form.Add_FormClosing({ Save-IniConfig $false })
 $form.Add_Load({ Load-IniConfig $false })
