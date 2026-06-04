@@ -1,6 +1,6 @@
 ﻿<# 
  .SYNOPSIS
-  DNI Eraser & Watermark Pro - Privacy Edition 2026 (v18 - Corrección de Memoria Gráfica y Recientes Descriptivos)
+  DNI Eraser & Watermark Pro (v19 - Formato INI y Créditos actualizados)
 #>
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -49,7 +49,7 @@ $script:viewParams = @{
 # ── UI CONSTRUCCIÓN ────────────────────────────────────────────────
 
 $form = New-Object System.Windows.Forms.Form
-$form.Text          = "DNI Eraser & Watermark Pro (v18 - Corregido)"
+$form.Text          = "DNI Eraser & Watermark Pro (v19)"
 $form.Size          = New-Object System.Drawing.Size(1250, 930) 
 $form.MinimumSize   = New-Object System.Drawing.Size(950, 700)
 $form.StartPosition = "CenterScreen"
@@ -248,7 +248,7 @@ function Convert-ToGrayscale([System.Drawing.Bitmap]$originalBmp) {
     }
     [System.Runtime.InteropServices.Marshal]::Copy($buffer, 0, $bmpDataGray.Scan0, $size)
     $originalBmp.UnlockBits($bmpDataOrig)
-    $grayBmp.UnlockBits($bmpDataGray) # Corregido v18: apuntaba a $grayBmp erróneamente rompiendo la memoria
+    $grayBmp.UnlockBits($bmpDataGray)
     return $grayBmp
 }
 
@@ -713,7 +713,6 @@ function Save-IniConfig($verbose) {
         elseif ($nameBack) { $combinedName = $nameBack }
         else { $combinedName = "Sesión vacía sin imágenes" }
 
-        # Añadimos la Línea 1 de forma visual si contiene texto descriptivo
         $line1Text = $txtLine1.Text.Trim()
         if ($line1Text) {
             $combinedName = "$combinedName | $line1Text"
@@ -745,7 +744,12 @@ function Save-IniConfig($verbose) {
         $sec["RearRects"]      = $rRects -join ';'
 
         $sb = New-Object System.Text.StringBuilder
+        $isFirst = $true
         foreach ($sectionName in $ini.Keys) {
+            if (-not $isFirst) {
+                [void]$sb.AppendLine() # Añade una línea en blanco entre secciones
+            }
+            $isFirst = $false
             [void]$sb.AppendLine("[$sectionName]")
             foreach ($key in $ini[$sectionName].Keys) {
                 [void]$sb.AppendLine("$key=$($ini[$sectionName][$key])")
@@ -789,7 +793,7 @@ function Load-IniConfig($verbose) {
 # ── ASIGNACIÓN DE EVENTOS ──────────────────────────────────────────────────
 
 $menuAbout.Add_Click({
-    $aboutText = "DNI Eraser & Watermark Pro`nVersión 18.0 (Edición Privacidad 2026)`n`nDiseñado para la edición local segura de documentos de identidad de forma 100% privada.`n`nDesarrollado para Manel.`nSin telemetría ni conexiones externas."
+    $aboutText = "DNI Eraser & Watermark Pro`nVersión 19.0 (4 de junio de 2026)`n`nDiseñado para la edición local segura de documentos de identidad de forma 100% privada.`n`nDesarrollado por Manel Rodero & Gemini 3.5 Flash.`nSin telemetría ni conexiones externas."
     [System.Windows.Forms.MessageBox]::Show($aboutText, "Acerca de este programa", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
 })
 
