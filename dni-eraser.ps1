@@ -1,6 +1,6 @@
 ﻿<# 
  .SYNOPSIS
-  DNI Eraser & Watermark Pro - Privacy Edition 2026 (v13 Final Sin Errores)
+  DNI Eraser & Watermark Pro - Privacy Edition 2026 (v14 Corregida)
 #>
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -46,10 +46,19 @@ $script:viewParams = @{
 # ── UI CONSTRUCCIÓN ────────────────────────────────────────────────
 
 $form = New-Object System.Windows.Forms.Form
-$form.Text          = "DNI Eraser & Watermark Pro (v13)"
-$form.Size          = New-Object System.Drawing.Size(1250, 920)
+$form.Text          = "DNI Eraser & Watermark Pro (v14)"
+$form.Size          = New-Object System.Drawing.Size(1250, 980)
 $form.MinimumSize   = New-Object System.Drawing.Size(950, 750)
 $form.StartPosition = "CenterScreen"
+
+# --- Barra de Menú Superior ---
+$menuBar = New-Object System.Windows.Forms.MenuStrip
+$menuHelp = New-Object System.Windows.Forms.ToolStripMenuItem("Ayuda")
+$menuAbout = New-Object System.Windows.Forms.ToolStripMenuItem("Acerca de")
+[void]$menuHelp.DropDownItems.Add($menuAbout)
+[void]$menuBar.Items.Add($menuHelp)
+$form.MainMenuStrip = $menuBar
+$form.Controls.Add($menuBar)
 
 $mainLayout = New-Object System.Windows.Forms.TableLayoutPanel
 $mainLayout.Dock = "Fill"
@@ -61,6 +70,7 @@ $stylePanel  = New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms
 [void]$mainLayout.ColumnStyles.Add($styleCanvas)
 [void]$mainLayout.ColumnStyles.Add($stylePanel)
 $form.Controls.Add($mainLayout)
+$mainLayout.BringToFront()
 
 $leftContainer = New-Object System.Windows.Forms.Panel
 $leftContainer.Dock = "Fill"
@@ -82,8 +92,8 @@ $canvasPictureBox.BringToFront()
 
 $panel = New-Object System.Windows.Forms.Panel
 $panel.Dock = "Fill"
-$panel.AutoScroll = $false
-$panel.Padding = New-Object System.Windows.Forms.Padding(12)
+$panel.AutoScroll = $true
+$panel.Padding = New-Object System.Windows.Forms.Padding(12, 12, 24, 12)
 $mainLayout.Controls.Add($panel, 1, 0)
 
 $yPos = 12
@@ -126,11 +136,11 @@ Add-GuiElement $fillColorBtn 15
 Add-GuiLabel "Configuración de la marca de agua" $true
 
 Add-GuiLabel "Línea 1: entidad / destinatario"
-$txtLine1 = New-Object System.Windows.Forms.TextBox -Property @{Text="CHUMBA"}
+$txtLine1 = New-Object System.Windows.Forms.TextBox -Property @{Text=""}
 Add-GuiElement $txtLine1 4
 
 Add-GuiLabel "Línea 2: motivo / uso exclusivo"
-$txtLine2 = New-Object System.Windows.Forms.TextBox -Property @{Text="CAMBIO A E-SIM"}
+$txtLine2 = New-Object System.Windows.Forms.TextBox -Property @{Text=""}
 Add-GuiElement $txtLine2
 
 $fsLbl = New-Object System.Windows.Forms.Label -Property @{Text="Tamaño letra: 35"; AutoSize=$true}
@@ -171,6 +181,26 @@ Add-GuiElement $btnLoadSession
 
 function Get-CurrentDoc { return $script:docs[$script:currentTab] }
 
+function Get-RelativeOrAbsolute($fullPath) {
+    if (-not $fullPath) { return "" }
+    $resolvedPath = Resolve-Path $fullPath -ErrorAction SilentlyContinue
+    if ($resolvedPath) { $fullPath = $resolvedPath.Path }
+    if ($fullPath.StartsWith($script:scriptPath)) {
+        $relative = $fullPath.Substring($script:scriptPath.Length).TrimStart([System.IO.Path]::DirectorySeparatorChar)
+        return ".\$relative"
+    }
+    return $fullPath
+}
+
+function Resolve-PathSmart($rawPath) {
+    if (-not $rawPath) { return "" }
+    if ($rawPath.StartsWith(".\") -or $rawPath.StartsWith("./")) {
+        $clean = $rawPath.Substring(2)
+        return [System.IO.Path]::GetFullPath((Join-Path $script:scriptPath $clean))
+    }
+    return [System.IO.Path]::GetFullPath($rawPath)
+}
+
 function Convert-RectToOriginal([System.Drawing.Rectangle]$r, $tabName) {
     $doc = $script:docs[$tabName]
     $vp  = $script:viewParams[$tabName]
@@ -209,9 +239,10 @@ function Convert-ToGrayscale([System.Drawing.Bitmap]$originalBmp) {
 }
 
 function Open-Image-Path($path, $tabName) {
-    if (-not (Test-Path $path)) { return $false }
+    $fullPath = Resolve-PathSmart $path
+    if (-not (Test-Path $fullPath)) { return $false }
     try {
-        $stream = New-Object System.IO.FileStream($path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read)
+        $stream = New-Object System.IO.FileStream($fullPath, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read)
         $img = [System.Drawing.Image]::FromStream($stream)
         $stream.Close(); $stream.Dispose()
         $doc = $script:docs[$tabName]
@@ -221,7 +252,7 @@ function Open-Image-Path($path, $tabName) {
         $doc.work     = New-Object System.Drawing.Bitmap $doc.original
         $img.Dispose()
         $doc.hasImage = $true
-        $doc.path     = $path
+        $doc.path     = $fullPath
         return $true
     } catch {
         return $false
@@ -314,6 +345,9 @@ function Process-SingleBitmap($tabName, $line1, $line2, $fontSizeUser, $opacity,
         $g.FillRectangle($brush, $origRect)
     }
     $brush.Dispose()
+    
+    if (-not $line1 -and -not $line2) { $g.Dispose(); return $baseBmp }
+
     $sizeL1 = [int]($baseBmp.Width * ($fontSizeUser / 1000.0))
     if ($sizeL1 -lt 8) { $sizeL1 = 8 }
     $sizeL2 = [int]($sizeL1 * 0.65)
@@ -323,29 +357,36 @@ function Process-SingleBitmap($tabName, $line1, $line2, $fontSizeUser, $opacity,
     $alpha   = [int]($opacity * 2.55)
     $wmColorA = [System.Drawing.Color]::FromArgb($alpha, $wmColor.R, $wmColor.G, $wmColor.B)
     $wmBrush  = New-Object System.Drawing.SolidBrush $wmColorA
-    $sf1 = $g.MeasureString($line1, $fontL1)
+    
+    $sf1 = if ($line1) { $g.MeasureString($line1, $fontL1) } else { [System.Drawing.SizeF]::new(0,0) }
     $sf2 = if ($line2) { $g.MeasureString($line2, $fontL2) } else { [System.Drawing.SizeF]::new(0,0) }
     $totalW = [Math]::Max($sf1.Width, $sf2.Width)
-    $lineGap = [int]($sizeL1 * 0.2)
-    $totalH = if ($line2) { $sf1.Height + $sf2.Height + $lineGap } else { $sf1.Height }
+    
+    # Reducido un 30% el espacio entre líneas para que queden más compactas
+    $lineGap = [int]($sizeL1 * 0.12)
+    $totalH = if ($line1 -and $line2) { ($sf1.Height * 0.95) + ($sf2.Height * 0.95) + $lineGap } elseif ($line1) { $sf1.Height } else { $sf2.Height }
+    
     $iw = $baseBmp.Width
     $ih = $baseBmp.Height
     $margin = [int]($sizeL1 * 0.5)
 
     $DrawWatermarkBlock = {
         param($gCtx, $bx, $by)
-        $x1 = $bx + (($totalW - $sf1.Width) / 2)
-        $gCtx.DrawString($line1, $fontL1, $wmBrush, $x1, $by)
+        $currentY = $by
+        if ($line1) {
+            $x1 = $bx + (($totalW - $sf1.Width) / 2)
+            $gCtx.DrawString($line1, $fontL1, $wmBrush, $x1, $currentY)
+            $currentY += ($sf1.Height * 0.90) + $lineGap
+        }
         if ($line2) {
             $x2 = $bx + (($totalW - $sf2.Width) / 2)
-            $y2 = $by + $sf1.Height + $lineGap
-            $gCtx.DrawString($line2, $fontL2, $wmBrush, $x2, $y2)
+            $gCtx.DrawString($line2, $fontL2, $wmBrush, $x2, $currentY)
         }
     }
 
     if ($posVal -eq "diagonal-tiled") {
         $hSpacing = [int]($totalW * 1.5)
-        $vSpacing = [int]($totalH * 2.5)
+        $vSpacing = [int]($totalH * 2.2)
         $g.TextRenderingHint = [System.Drawing.Text.TextRenderingHint]::AntiAlias
         $oldTransform = $g.Transform
         $g.RotateTransform(-25) 
@@ -359,8 +400,8 @@ function Process-SingleBitmap($tabName, $line1, $line2, $fontSizeUser, $opacity,
         }
         $g.Transform = $oldTransform
     } elseif ($posVal -eq "tiled") {
-        $stepY = [int]($totalH + $sizeL1 * 2)
-        $stepX = [int]($totalW + $sizeL1 * 2.5)
+        $stepY = [int]($totalH + $sizeL1 * 1.8)
+        $stepX = [int]($totalW + $sizeL1 * 2.2)
         for ($y = $margin; $y -lt ($ih - $totalH); $y += $stepY) {
             for ($x = $margin; $x -lt ($iw - $totalW); $x += $stepX) {
                 & $DrawWatermarkBlock $g $x $y
@@ -418,6 +459,7 @@ function Save-Image {
         $lang = [System.Threading.Thread]::CurrentThread.CurrentUICulture.TwoLetterISOLanguageName
         $yesLabel = if ($lang -eq "es") { "[Sí]" } else { "[Yes]" }
         $noLabel  = if ($lang -eq "es") { "[No]" } else { "[No]" }
+        # Corregido el literal de texto "¿Desea"
         $msgText = "¿Desea combinar ambas caras en una única imagen vertical?`n`n$yesLabel = Combinación vertical combinada`n$noLabel = Guardar únicamente la pestaña visual activa"
         $ans = [System.Windows.Forms.MessageBox]::Show($msgText, "Guardar", [System.Windows.Forms.MessageBoxButtons]::YesNoCancel)
         if ($ans -eq [System.Windows.Forms.DialogResult]::Cancel) { return }
@@ -499,7 +541,8 @@ function Save-IniConfig($verbose) {
         [void]$sb.AppendLine("WatermarkColor=$htmlWater")
         foreach ($tab in @("Frontal", "Trasera")) {
             [void]$sb.AppendLine("[$tab]")
-            [void]$sb.AppendLine("Path=$($script:docs[$tab].path)")
+            $relPath = Get-RelativeOrAbsolute $script:docs[$tab].path
+            [void]$sb.AppendLine("Path=$relPath")
             $rStrings = @()
             foreach ($r in $script:docs[$tab].rects) {
                 $rStrings += "$($r.X),$($r.Y),$($r.Width),$($r.Height)"
@@ -575,6 +618,11 @@ function Load-IniConfig($verbose) {
 }
 
 # ── ASIGNACIÓN DE EVENTOS ──────────────────────────────────────────────────
+
+$menuAbout.Add_Click({
+    $aboutText = "DNI Eraser & Watermark Pro`nVersión 14.0 (Edición Privacidad 2026)`n`nDiseñado para la edición local segura de documentos de identidad de forma 100% privada.`n`nDesarrollado para Manel.`nSin telemetría ni conexiones externas."
+    [System.Windows.Forms.MessageBox]::Show($aboutText, "Acerca de este programa", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
+})
 
 $tabStrip.Add_SelectedIndexChanged({
     $script:currentTab = if ($tabStrip.SelectedIndex -eq 1) { "Trasera" } else { "Frontal" }
