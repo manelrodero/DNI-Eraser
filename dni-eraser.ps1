@@ -10,10 +10,26 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
-# ── Localización Infalible del Archivo de Configuración ───────────────────
+# ── Localización Robusta y A Prueba de Fallos del Archivo ──────────────────
 $script:scriptPath = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path $MyInvocation.MyCommand.Path -Parent }
-if (-not $script:scriptPath) { $script:scriptPath = [System.IO.Directory]::GetCurrentDirectory() }
+if (-not $script:scriptPath -or -not (Test-Path $script:scriptPath -PathType Container)) { 
+    $script:scriptPath = [System.IO.Directory]::GetCurrentDirectory() 
+}
+
 $script:configFile = Join-Path $script:scriptPath "session_config.ini"
+
+# Validar si tenemos permisos de escritura; si no, redirigir a Mis Documentos
+try {
+    $testFile = Join-Path $script:scriptPath "perm_test.tmp"
+    [System.IO.File]::WriteAllText($testFile, "test")
+    [System.IO.File]::Delete($testFile)
+} catch {
+    # Si falla, usamos la carpeta de documentos del usuario actual
+    $docFolder = [System.Environment]::GetFolderPath([System.Environment+SpecialFolder]::MyDocuments)
+    $script:scriptPath = Join-Path $docFolder "EditorDNI"
+    if (-not (Test-Path $script:scriptPath)) { [void](New-Item -ItemType Directory -Path $script:scriptPath -Force) }
+    $script:configFile = Join-Path $script:scriptPath "session_config.ini"
+}
 
 # ── Estado Global Extendido ────────────────────────────────────────────────
 $script:docs = @{
@@ -116,7 +132,7 @@ function Open-Image {
         $doc.rects = @()
         $listBox.Items.Clear()
         Update-Canvas
-        Save-IniConfig
+        Save-IniConfig $false
     } else {
         [System.Windows.Forms.MessageBox]::Show("No se pudo abrir la imagen.", "Error")
     }
@@ -210,7 +226,7 @@ function Process-SingleBitmap($tabName, $txt, $fontSizeUser, $opacity, $wmColor,
     }
     $brush.Dispose()
 
-    # MEJORA: Tamaño de fuente calculado como porcentaje real del ancho de la imagen nativa
+    # Tamaño de fuente calculado como porcentaje real del ancho de la imagen nativa
     $calculatedSize = [int]($baseBmp.Width * ($fontSizeUser / 1000.0))
     if ($calculatedSize -lt 8) { $calculatedSize = 8 }
 
@@ -235,7 +251,6 @@ function Process-SingleBitmap($tabName, $txt, $fontSizeUser, $opacity, $wmColor,
         $g.RotateTransform(-25) 
         
         $rowCounter = 0
-        # Forzar un área de dibujado expandida para cubrir rotaciones sin dejar huecos
         for ($y = -$ih; $y -lt $ih * 2; $y += $vSpacing) {
             $xOffsetRow = if ($rowCounter % 2 -eq 1) { [int]($hSpacing / 2) } else { 0 }
             for ($x = -$iw; $x -lt $iw * 2; $x += $hSpacing) {
@@ -368,7 +383,7 @@ function Clear-Selections {
     $doc.rects = @()
     Sync-Listbox
     Update-Canvas
-    Save-IniConfig
+    Save-IniConfig $false
 }
 
 function Remove-Selected {
@@ -379,12 +394,12 @@ function Remove-Selected {
     $doc.rects = @($doc.rects[0..($idx-1)] + $doc.rects[($idx+1)..($doc.rects.Count-1)])
     Sync-Listbox
     Update-Canvas
-    Save-IniConfig
+    Save-IniConfig $false
 }
 
 # ── Serialización de Archivos de Configuración INI Corregida ────────────────
 
-function Save-IniConfig {
+function Save-IniConfig($verbose) {
     try {
         $sb = New-Object System.Text.StringBuilder
         [void]$sb.AppendLine("[General]")
@@ -406,11 +421,21 @@ function Save-IniConfig {
             [void]$sb.AppendLine("Rects=$($rStrings -join ';')")
         }
         [System.IO.File]::WriteAllText($script:configFile, $sb.ToString(), [System.Text.Encoding]::UTF8)
-    } catch {}
+        if ($verbose) {
+            [System.Windows.Forms.MessageBox]::Show("Configuración guardada correctamente en:`n$script:configFile", "Éxito")
+        }
+    } catch {
+        if ($verbose) {
+            [System.Windows.Forms.MessageBox]::Show("Error al guardar configuración: $_", "Error")
+        }
+    }
 }
 
-function Load-IniConfig {
-    if (-not (Test-Path $script:configFile)) { return }
+function Load-IniConfig($verbose) {
+    if (-not (Test-Path $script:configFile)) { 
+        if ($verbose) { [System.Windows.Forms.MessageBox]::Show("No se encontró ningún archivo de sesión anterior.", "Aviso") }
+        return 
+    }
     try {
         $lines = Get-Content $script:configFile -Encoding UTF8
         $currentSection = ""
@@ -455,15 +480,18 @@ function Load-IniConfig {
         }
         Sync-Listbox
         Update-Canvas
-    } catch {}
+        if ($verbose) { [System.Windows.Forms.MessageBox]::Show("Sesión restaurada correctamente.", "Éxito") }
+    } catch {
+        if ($verbose) { [System.Windows.Forms.MessageBox]::Show("Error al cargar sesión: $_", "Error") }
+    }
 }
 
 # ── UI CONSTRUCCIÓN ────────────────────────────────────────────────────────
 
 $form = New-Object System.Windows.Forms.Form
 $form.Text          = "Photo Eraser & Watermark Pro"
-$form.Size          = New-Object System.Drawing.Size(1250, 850)
-$form.MinimumSize   = New-Object System.Drawing.Size(950, 650)
+$form.Size          = New-Object System.Drawing.Size(1250, 890)
+$form.MinimumSize   = New-Object System.Drawing.Size(950, 700)
 $form.StartPosition = "CenterScreen"
 
 $mainLayout = New-Object System.Windows.Forms.TableLayoutPanel
@@ -529,7 +557,7 @@ $canvasPictureBox.Add_MouseUp({
         $doc = Get-CurrentDoc
         $doc.rects += $rectVisual
         Sync-Listbox
-        Save-IniConfig
+        Save-IniConfig $false
     }
     Update-Canvas
 })
@@ -583,55 +611,65 @@ Add-GuiLabel "Color de Ocultación / Tapado" $true
 $fillColorBtn = New-Object System.Windows.Forms.Button -Property @{Text="Elegir Color de Relleno"; Height=25; BackColor=[System.Drawing.Color]::DarkGray}
 $fillColorBtn.Add_Click({
     $cd = New-Object System.Windows.Forms.ColorDialog
-    if ($cd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $fillColorBtn.BackColor = $cd.Color; Save-IniConfig }
+    if ($cd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $fillColorBtn.BackColor = $cd.Color; Save-IniConfig $false }
 })
 Add-GuiElement $fillColorBtn 12
 
 $grayCheck = New-Object System.Windows.Forms.CheckBox -Property @{Text="Convertir imagen a Escala de Grises"; AutoSize=$true; Checked=$false}
-$grayCheck.Add_CheckedChanged({ Save-IniConfig })
+$grayCheck.Add_CheckedChanged({ Save-IniConfig $false })
 Add-GuiElement $grayCheck 15
 
 Add-GuiLabel "Configuración Marca de Agua" $true
 
 Add-GuiLabel "Texto de Protección:"
 $watermarkText = New-Object System.Windows.Forms.TextBox -Property @{Text="COPIA RESTRINGIDA"}
-$watermarkText.Add_TextChanged({ Save-IniConfig })
+$watermarkText.Add_TextChanged({ Save-IniConfig $false })
 Add-GuiElement $watermarkText
 
 $fsLbl = New-Object System.Windows.Forms.Label -Property @{Text="Tamaño Letra: 35"; AutoSize=$true}
 Add-GuiElement $fsLbl 0
 $fontSizeTrack = New-Object System.Windows.Forms.TrackBar -Property @{Minimum=10; Maximum=150; Value=35; Height=30; TickFrequency=10}
-$fontSizeTrack.Add_Scroll({ $fsLbl.Text = "Tamaño Letra: $($fontSizeTrack.Value)"; Save-IniConfig })
+$fontSizeTrack.Add_Scroll({ $fsLbl.Text = "Tamaño Letra: $($fontSizeTrack.Value)"; Save-IniConfig $false })
 Add-GuiElement $fontSizeTrack
 
 $opLbl = New-Object System.Windows.Forms.Label -Property @{Text="Opacidad: 35%"; AutoSize=$true}
 Add-GuiElement $opLbl 0
 $opacityTrack = New-Object System.Windows.Forms.TrackBar -Property @{Minimum=5; Maximum=100; Value=35; Height=30; TickFrequency=10}
-$opacityTrack.Add_Scroll({ $opLbl.Text = "Opacidad: $($opacityTrack.Value)%"; Save-IniConfig })
+$opacityTrack.Add_Scroll({ $opLbl.Text = "Opacidad: $($opacityTrack.Value)%"; Save-IniConfig $false })
 Add-GuiElement $opacityTrack
 
 Add-GuiLabel "Posición y Estilo:"
 $posCombo = New-Object System.Windows.Forms.ComboBox -Property @{DropDownStyle="DropDownList"}
 [void]$posCombo.Items.AddRange(@("top-left", "top-right", "bottom-left", "bottom-right", "center", "tiled", "diagonal-tiled"))
 $posCombo.SelectedIndex = 6
-$posCombo.Add_SelectedIndexChanged({ Save-IniConfig })
+$posCombo.Add_SelectedIndexChanged({ Save-IniConfig $false })
 Add-GuiElement $posCombo
 
 Add-GuiLabel "Color Texto:"
 $watermarkColorBtn = New-Object System.Windows.Forms.Button -Property @{Text="Elegir Color"; Height=25; BackColor=[System.Drawing.Color]::Red}
 $watermarkColorBtn.Add_Click({
     $cd = New-Object System.Windows.Forms.ColorDialog
-    if ($cd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $watermarkColorBtn.BackColor = $cd.Color; Save-IniConfig }
+    if ($cd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $watermarkColorBtn.BackColor = $cd.Color; Save-IniConfig $false }
 })
-Add-GuiElement $watermarkColorBtn 18
+Add-GuiElement $watermarkColorBtn 12
 
 $applyBtn = New-Object System.Windows.Forms.Button -Property @{Text="APLICAR EFECTOS"; Height=42; Font=New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold); BackColor=[System.Drawing.Color]::LightSkyBlue}
 $applyBtn.Add_Click({ Apply-Effects })
-Add-GuiElement $applyBtn
+Add-GuiElement $applyBtn 20
+
+# NUEVO: Botones explícitos de control de sesión manual
+Add-GuiLabel "Persistencia de Datos" $true
+$btnSaveSession = New-Object System.Windows.Forms.Button -Property @{Text="Guardar Configuración"; Height=26; BackColor=[System.Drawing.Color]::WhiteSmoke}
+$btnSaveSession.Add_Click({ Save-IniConfig $true })
+Add-GuiElement $btnSaveSession
+
+$btnLoadSession = New-Object System.Windows.Forms.Button -Property @{Text="Cargar Configuración"; Height=26; BackColor=[System.Drawing.Color]::WhiteSmoke}
+$btnLoadSession.Add_Click({ Load-IniConfig $true })
+Add-GuiElement $btnLoadSession
 
 # Eventos de Ciclo de Vida
-$form.Add_FormClosing({ Save-IniConfig })
-$form.Add_Load({ Load-IniConfig })
+$form.Add_FormClosing({ Save-IniConfig $false })
+$form.Add_Load({ Load-IniConfig $false })
 
 $form.Add_KeyDown({
     if ($_.Control -and $_.KeyCode -eq 'O') { Open-Image; $_.SuppressKeyPress = $true }
