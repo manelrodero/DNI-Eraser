@@ -1,6 +1,6 @@
 ﻿<# 
  .SYNOPSIS
-  DNI Eraser & Watermark Pro - Privacy Edition 2026 (v14 Corregida)
+  DNI Eraser & Watermark Pro - Privacy Edition 2026 (v15 - Edición Equilibrada)
 #>
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -46,7 +46,7 @@ $script:viewParams = @{
 # ── UI CONSTRUCCIÓN ────────────────────────────────────────────────
 
 $form = New-Object System.Windows.Forms.Form
-$form.Text          = "DNI Eraser & Watermark Pro (v14)"
+$form.Text          = "DNI Eraser & Watermark Pro (v15)"
 $form.Size          = New-Object System.Drawing.Size(1250, 980)
 $form.MinimumSize   = New-Object System.Drawing.Size(950, 750)
 $form.StartPosition = "CenterScreen"
@@ -362,7 +362,6 @@ function Process-SingleBitmap($tabName, $line1, $line2, $fontSizeUser, $opacity,
     $sf2 = if ($line2) { $g.MeasureString($line2, $fontL2) } else { [System.Drawing.SizeF]::new(0,0) }
     $totalW = [Math]::Max($sf1.Width, $sf2.Width)
     
-    # Reducido un 30% el espacio entre líneas para que queden más compactas
     $lineGap = [int]($sizeL1 * 0.12)
     $totalH = if ($line1 -and $line2) { ($sf1.Height * 0.95) + ($sf2.Height * 0.95) + $lineGap } elseif ($line1) { $sf1.Height } else { $sf2.Height }
     
@@ -384,25 +383,26 @@ function Process-SingleBitmap($tabName, $line1, $line2, $fontSizeUser, $opacity,
         }
     }
 
+    # ── AJUSTE DE REPETICIÓN DEL PATRÓN DE MOSAICO (Densidad recuperada) ──
     if ($posVal -eq "diagonal-tiled") {
-        $hSpacing = [int]($totalW * 1.5)
-        $vSpacing = [int]($totalH * 2.2)
+        $hSpacing = [int]($totalW * 1.4)
+        $vSpacing = [int]($totalH * 1.6) 
         $g.TextRenderingHint = [System.Drawing.Text.TextRenderingHint]::AntiAlias
         $oldTransform = $g.Transform
         $g.RotateTransform(-25) 
         $rowCounter = 0
-        for ($y = -$ih; $y -lt $ih * 2; $y += $vSpacing) {
+        for ($y = -$ih * 2; $y -lt $ih * 3; $y += $vSpacing) {
             $xOffsetRow = if ($rowCounter % 2 -eq 1) { [int]($hSpacing / 2) } else { 0 }
-            for ($x = -$iw; $x -lt $iw * 2; $x += $hSpacing) {
+            for ($x = -$iw * 2; $x -lt $iw * 3; $x += $hSpacing) {
                 & $DrawWatermarkBlock $g ($x + $xOffsetRow) $y
             }
             $rowCounter++
         }
         $g.Transform = $oldTransform
     } elseif ($posVal -eq "tiled") {
-        $stepY = [int]($totalH + $sizeL1 * 1.8)
-        $stepX = [int]($totalW + $sizeL1 * 2.2)
-        for ($y = $margin; $y -lt ($ih - $totalH); $y += $stepY) {
+        $stepY = [int]($totalH * 1.1)
+        $stepX = [int]($totalW + $sizeL1 * 3.5)
+        for ($y = $margin; $y -lt ($ih - $totalH + $stepY); $y += $stepY) {
             for ($x = $margin; $x -lt ($iw - $totalW); $x += $stepX) {
                 & $DrawWatermarkBlock $g $x $y
             }
@@ -459,7 +459,6 @@ function Save-Image {
         $lang = [System.Threading.Thread]::CurrentThread.CurrentUICulture.TwoLetterISOLanguageName
         $yesLabel = if ($lang -eq "es") { "[Sí]" } else { "[Yes]" }
         $noLabel  = if ($lang -eq "es") { "[No]" } else { "[No]" }
-        # Corregido el literal de texto "¿Desea"
         $msgText = "¿Desea combinar ambas caras en una única imagen vertical?`n`n$yesLabel = Combinación vertical combinada`n$noLabel = Guardar únicamente la pestaña visual activa"
         $ans = [System.Windows.Forms.MessageBox]::Show($msgText, "Guardar", [System.Windows.Forms.MessageBoxButtons]::YesNoCancel)
         if ($ans -eq [System.Windows.Forms.DialogResult]::Cancel) { return }
@@ -620,7 +619,7 @@ function Load-IniConfig($verbose) {
 # ── ASIGNACIÓN DE EVENTOS ──────────────────────────────────────────────────
 
 $menuAbout.Add_Click({
-    $aboutText = "DNI Eraser & Watermark Pro`nVersión 14.0 (Edición Privacidad 2026)`n`nDiseñado para la edición local segura de documentos de identidad de forma 100% privada.`n`nDesarrollado para Manel.`nSin telemetría ni conexiones externas."
+    $aboutText = "DNI Eraser & Watermark Pro`nVersión 15.0 (Edición Privacidad 2026)`n`nDiseñado para la edición local segura de documentos de identidad de forma 100% privada.`n`nDesarrollado para Manel.`nSin telemetría ni conexiones externas."
     [System.Windows.Forms.MessageBox]::Show($aboutText, "Acerca de este programa", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
 })
 
