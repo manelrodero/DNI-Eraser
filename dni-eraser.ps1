@@ -1,6 +1,6 @@
 ﻿<# 
  .SYNOPSIS
-  Photo Eraser & Watermark Tool - Privacy Edition 2026
+  Photo Eraser & Watermark Tool - Privacy Edition 2026 (v7)
 #>
 
 # Forzar codificación UTF-8 en la consola para evitar fallos de acentos
@@ -10,7 +10,7 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
-# ── Localización Robusta y A Prueba de Fallos del Archivo ──────────────────
+# ── Localización Robusta del Archivo de Configuración ──────────────────────
 $script:scriptPath = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path $MyInvocation.MyCommand.Path -Parent }
 if (-not $script:scriptPath -or -not (Test-Path $script:scriptPath -PathType Container)) { 
     $script:scriptPath = [System.IO.Directory]::GetCurrentDirectory() 
@@ -24,7 +24,6 @@ try {
     [System.IO.File]::WriteAllText($testFile, "test")
     [System.IO.File]::Delete($testFile)
 } catch {
-    # Si falla, usamos la carpeta de documentos del usuario actual
     $docFolder = [System.Environment]::GetFolderPath([System.Environment+SpecialFolder]::MyDocuments)
     $script:scriptPath = Join-Path $docFolder "EditorDNI"
     if (-not (Test-Path $script:scriptPath)) { [void](New-Item -ItemType Directory -Path $script:scriptPath -Force) }
@@ -218,7 +217,6 @@ function Process-SingleBitmap($tabName, $txt, $fontSizeUser, $opacity, $wmColor,
     $g = [System.Drawing.Graphics]::FromImage($baseBmp)
     $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
 
-    # 1. Aplicación de las regiones de borrado
     $brush = New-Object System.Drawing.SolidBrush $fillColor
     foreach ($r in $doc.rects) {
         $origRect = Convert-RectToOriginal $r $tabName
@@ -226,7 +224,6 @@ function Process-SingleBitmap($tabName, $txt, $fontSizeUser, $opacity, $wmColor,
     }
     $brush.Dispose()
 
-    # Tamaño de fuente calculado como porcentaje real del ancho de la imagen nativa
     $calculatedSize = [int]($baseBmp.Width * ($fontSizeUser / 1000.0))
     if ($calculatedSize -lt 8) { $calculatedSize = 8 }
 
@@ -489,7 +486,7 @@ function Load-IniConfig($verbose) {
 # ── UI CONSTRUCCIÓN ────────────────────────────────────────────────────────
 
 $form = New-Object System.Windows.Forms.Form
-$form.Text          = "Photo Eraser & Watermark Pro"
+$form.Text          = "Photo Eraser & Watermark Pro (v7)"
 $form.Size          = New-Object System.Drawing.Size(1250, 890)
 $form.MinimumSize   = New-Object System.Drawing.Size(950, 700)
 $form.StartPosition = "CenterScreen"
@@ -657,7 +654,6 @@ $applyBtn = New-Object System.Windows.Forms.Button -Property @{Text="APLICAR EFE
 $applyBtn.Add_Click({ Apply-Effects })
 Add-GuiElement $applyBtn 20
 
-# NUEVO: Botones explícitos de control de sesión manual
 Add-GuiLabel "Persistencia de Datos" $true
 $btnSaveSession = New-Object System.Windows.Forms.Button -Property @{Text="Guardar Configuración"; Height=26; BackColor=[System.Drawing.Color]::WhiteSmoke}
 $btnSaveSession.Add_Click({ Save-IniConfig $true })
@@ -667,7 +663,7 @@ $btnLoadSession = New-Object System.Windows.Forms.Button -Property @{Text="Carga
 $btnLoadSession.Add_Click({ Load-IniConfig $true })
 Add-GuiElement $btnLoadSession
 
-# Eventos de Ciclo de Vida
+# Eventos de Ciclo de Vida corregidos
 $form.Add_FormClosing({ Save-IniConfig $false })
 $form.Add_Load({ Load-IniConfig $false })
 
