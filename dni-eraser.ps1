@@ -1,6 +1,6 @@
 ﻿<# 
  .SYNOPSIS
-  Photo Eraser & Watermark Tool - Privacy Edition 2026 (v9)
+  Photo Eraser & Watermark Tool - Privacy Edition 2026 (v10 - Corregida)
 #>
 
 # Forzar codificación UTF-8 en la consola para evitar fallos de acentos
@@ -39,7 +39,7 @@ $script:currentTab   = "Frontal"
 $script:isDragging   = $false
 $script:dragStart    = $null
 $script:dragEnd      = $null
-$script:loading      = $false  # ¡NUEVO!: Evita escrituras accidentales en cascada durante la carga
+$script:loading      = $false
 
 $script:viewParams = @{
     "Frontal" = @{ scale = 1.0; xOffset = 0; yOffset = 0 }
@@ -398,7 +398,6 @@ function Remove-Selected {
 # ── Serialización de Archivos de Configuración INI ─────────────────────────
 
 function Save-IniConfig($verbose) {
-    # ¡NUEVO!: Si el programa está cargando datos, ignoramos por completo cualquier guardado automático para no romper el archivo
     if ($script:loading -and -not $verbose) { return }
 
     try {
@@ -441,7 +440,7 @@ function Load-IniConfig($verbose) {
         return 
     }
     try {
-        $script:loading = $true # Activamos el escudo protector antiescrituras
+        $script:loading = $true
 
         $lines = Get-Content $script:configFile -Encoding UTF8
         $currentSection = ""
@@ -490,14 +489,14 @@ function Load-IniConfig($verbose) {
     } catch {
         if ($verbose) { [System.Windows.Forms.MessageBox]::Show("Error al cargar sesión: $_", "Error") }
     } finally {
-        $script:loading = $false # Desactivamos el escudo. A partir de ahora los cambios del usuario sí se guardarán.
+        $script:loading = $false
     }
 }
 
 # ── UI CONSTRUCCIÓN ────────────────────────────────────────────────────────
 
 $form = New-Object System.Windows.Forms.Form
-$form.Text          = "Photo Eraser & Watermark Pro (v9)"
+$form.Text          = "Photo Eraser & Watermark Pro (v10)"
 $form.Size          = New-Object System.Drawing.Size(1250, 890)
 $form.MinimumSize   = New-Object System.Drawing.Size(950, 700)
 $form.StartPosition = "CenterScreen"
@@ -573,14 +572,15 @@ $canvasPictureBox.Add_Resize({ Update-Canvas })
 
 $panel = New-Object System.Windows.Forms.Panel
 $panel.Dock = "Fill"
-$panel.AutoScroll = $true
-$panel.Padding = New-Object System.Windows.Forms.Padding(10)
+$panel.AutoScroll = $false  # ARREGLADO: Desactivamos scroll automático molesto
+$panel.Padding = New-Object System.Windows.Forms.Padding(12)
 $mainLayout.Controls.Add($panel, 1, 0)
 
-$yPos = 10
-function Add-GuiElement($obj, $hGap=4) {
-    $obj.Location = New-Object System.Drawing.Point(10, $script:yPos)
-    if ($obj.Width -eq 0) { $obj.Width = 250 }
+$yPos = 12
+# ARREGLADO: El ancho de los componentes se adapta automáticamente al espacio real disponible en el panel
+function Add-GuiElement($obj, $hGap=6) {
+    $obj.Location = New-Object System.Drawing.Point(12, $script:yPos)
+    $obj.Width = $panel.ClientSize.Width - 24
     [void]$panel.Controls.Add($obj)
     $script:yPos += $obj.Height + $hGap
 }
@@ -599,7 +599,7 @@ $openBtn = New-Object System.Windows.Forms.Button -Property @{Text="Abrir Imagen
 $openBtn.Add_Click({ Open-Image })
 Add-GuiElement $openBtn
 
-$saveBtn = New-Object System.Windows.Forms.Button -Property @{Text="GUARDAR RESULTADO FINAL"; Height=34; BackColor=[System.Drawing.Color]::LightGreen; Font=New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)}
+$saveBtn = New-Object System.Windows.Forms.Button -Property @{Text="GUARDAR RESULTADO FINAL"; Height=36; BackColor=[System.Drawing.Color]::LightGreen; Font=New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)}
 $saveBtn.Add_Click({ Save-Image })
 Add-GuiElement $saveBtn 15
 
@@ -666,11 +666,12 @@ $applyBtn.Add_Click({ Apply-Effects })
 Add-GuiElement $applyBtn 20
 
 Add-GuiLabel "Persistencia de Datos" $true
-$btnSaveSession = New-Object System.Windows.Forms.Button -Property @{Text="Guardar Configuración"; Height=26; BackColor=[System.Drawing.Color]::WhiteSmoke}
+# ARREGLADO: Botones apilados verticalmente a ancho completo para evitar cualquier tipo de corte
+$btnSaveSession = New-Object System.Windows.Forms.Button -Property @{Text="Guardar Configuración"; Height=28; BackColor=[System.Drawing.Color]::WhiteSmoke}
 $btnSaveSession.Add_Click({ Save-IniConfig $true })
-Add-GuiElement $btnSaveSession
+Add-GuiElement $btnSaveSession 4
 
-$btnLoadSession = New-Object System.Windows.Forms.Button -Property @{Text="Cargar Configuración"; Height=26; BackColor=[System.Drawing.Color]::WhiteSmoke}
+$btnLoadSession = New-Object System.Windows.Forms.Button -Property @{Text="Cargar Configuración"; Height=28; BackColor=[System.Drawing.Color]::WhiteSmoke}
 $btnLoadSession.Add_Click({ Load-IniConfig $true })
 Add-GuiElement $btnLoadSession
 
