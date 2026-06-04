@@ -10,9 +10,13 @@ Ante el riesgo latente de robo de identidad, fraudes financieros o uso indebido 
 
 El programa ofrece una interfaz gráfica intuitiva construida nativamente en Windows Forms mediante PowerShell.
 
+![DNI Eraser Screenshot (Inicial)](./assets/DNI-Eraser-Screenshot.png)
+
 El usuario puede cargar de forma independiente las caras frontal y trasera del documento, seleccionar de manera interactiva áreas mediante el arrastre del ratón para censurarlas (rellenándolas con un color sólido) y superponer textos personalizados en modo de mosaico diagonal oblicuo o estándar.
 
 La herramienta realiza los cálculos dinámicos de redimensionamiento y escalado para asegurar que las modificaciones se apliquen con precisión matemática sobre los píxeles reales de la imagen, garantizando que el documento quede protegido antes de ser enviado a terceros.
+
+![DNI Eraser Screenshot (Final)](./assets/DNI-Eraser-Screenshot-Result.png)
 
 ## CHANGELOG DETALLADO
 
