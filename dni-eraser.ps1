@@ -1,6 +1,6 @@
 ﻿<# 
  .SYNOPSIS
-  Photo Eraser & Watermark Tool - Privacy Edition 2026 (v7)
+  Photo Eraser & Watermark Tool - Privacy Edition 2026 (v8)
 #>
 
 # Forzar codificación UTF-8 en la consola para evitar fallos de acentos
@@ -405,8 +405,12 @@ function Save-IniConfig($verbose) {
         [void]$sb.AppendLine("Opacity=$($opacityTrack.Value)")
         [void]$sb.AppendLine("Position=$($posCombo.SelectedItem)")
         [void]$sb.AppendLine("Grayscale=$($grayCheck.Checked)")
-        [void]$sb.AppendLine("FillColor=$($fillColorBtn.BackColor.ToHtml())")
-        [void]$sb.AppendLine("WatermarkColor=$($watermarkColorBtn.BackColor.ToHtml())")
+        
+        # CORRECCIÓN: Uso de ColorTranslator en lugar del método inexistente .ToHtml()
+        $htmlFill  = [System.Drawing.ColorTranslator]::ToHtml($fillColorBtn.BackColor)
+        $htmlWater = [System.Drawing.ColorTranslator]::ToHtml($watermarkColorBtn.BackColor)
+        [void]$sb.AppendLine("FillColor=$htmlFill")
+        [void]$sb.AppendLine("WatermarkColor=$htmlWater")
         
         foreach ($tab in @("Frontal", "Trasera")) {
             [void]$sb.AppendLine("[$tab]")
@@ -486,7 +490,7 @@ function Load-IniConfig($verbose) {
 # ── UI CONSTRUCCIÓN ────────────────────────────────────────────────────────
 
 $form = New-Object System.Windows.Forms.Form
-$form.Text          = "Photo Eraser & Watermark Pro (v7)"
+$form.Text          = "Photo Eraser & Watermark Pro (v8)"
 $form.Size          = New-Object System.Drawing.Size(1250, 890)
 $form.MinimumSize   = New-Object System.Drawing.Size(950, 700)
 $form.StartPosition = "CenterScreen"
@@ -663,7 +667,7 @@ $btnLoadSession = New-Object System.Windows.Forms.Button -Property @{Text="Carga
 $btnLoadSession.Add_Click({ Load-IniConfig $true })
 Add-GuiElement $btnLoadSession
 
-# Eventos de Ciclo de Vida corregidos
+# Eventos de Ciclo de Vida
 $form.Add_FormClosing({ Save-IniConfig $false })
 $form.Add_Load({ Load-IniConfig $false })
 
